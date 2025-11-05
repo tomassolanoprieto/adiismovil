@@ -1545,7 +1545,7 @@ export default function SupervisorDashboard() {
               <button
                 onClick={() => {
                   localStorage.removeItem('supervisorEmail');
-                  navigate('/login');
+                  navigate('/');
                 }}
                 className="flex items-center text-gray-700 hover:text-gray-900 p-2"
               >
