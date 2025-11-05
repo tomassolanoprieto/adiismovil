@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Calendar, Clock, User, Bell } from 'lucide-react';
+import { Home, Calendar, Clock, User, Bell, Users, History } from 'lucide-react';
 
 interface MobileNavProps {
   role: 'employee' | 'coordinator';
@@ -11,6 +11,7 @@ function MobileNav({ role }: MobileNavProps) {
 
   const employeeLinks = [
     { to: '/empleado', icon: Home, label: 'Inicio' },
+    { to: '/empleado/historial', icon: History, label: 'Historial' },
     { to: '/empleado/calendario', icon: Calendar, label: 'Calendario' },
     { to: '/empleado/solicitudes', icon: Clock, label: 'Solicitudes' },
     { to: '/empleado/perfil', icon: User, label: 'Perfil' }
@@ -18,8 +19,9 @@ function MobileNav({ role }: MobileNavProps) {
 
   const coordinatorLinks = [
     { to: '/supervisor/centro', icon: Home, label: 'Inicio' },
-    { to: '/supervisor/centro/calendario', icon: Calendar, label: 'Calendario' },
+    { to: '/supervisor/centro/empleados', icon: Users, label: 'Empleados' },
     { to: '/supervisor/centro/alertas', icon: Bell, label: 'Alertas' },
+    { to: '/supervisor/centro/calendario', icon: Calendar, label: 'Calendario' },
     { to: '/supervisor/centro/solicitudes', icon: Clock, label: 'Solicitudes' }
   ];
 

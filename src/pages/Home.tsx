@@ -81,17 +81,9 @@ export default function Home() {
           </h2>
 
           <div className="max-w-2xl mx-auto">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                onClick={() => navigate('/login/empresa')}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
-              >
-                <Building className="w-5 h-5" />
-                Empresa
-              </button>
-
-              <button
-                onClick={() => navigate('/login/empleado')}
+                onClick={() => navigate('/login')}
                 className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
               >
                 <Users className="w-5 h-5" />
@@ -99,15 +91,7 @@ export default function Home() {
               </button>
 
               <button
-                onClick={() => navigate('/login/inspector')}
-                className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
-              >
-                <Shield className="w-5 h-5" />
-                Inspector/a
-              </button>
-
-              <button
-                onClick={() => navigate('/login/supervisor/centro')}
+                onClick={() => navigate('/login')}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
               >
                 <Shield className="w-5 h-5" />

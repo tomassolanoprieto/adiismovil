@@ -451,7 +451,7 @@ function EmployeeDashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem('employeeId');
-    navigate('/');
+    navigate('/login');
   };
 
   return (
