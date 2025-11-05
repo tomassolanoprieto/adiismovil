@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { 
-  LogOut, 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  LogIn, 
-  Clock, 
-  FileText, 
-  User 
+import {
+  LogOut,
+  Play,
+  Pause,
+  RotateCcw,
+  LogIn,
+  Clock,
+  FileText,
+  User,
+  Calendar,
+  History
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import MobileNav from '../components/MobileNav';
 import EmployeeHistory from './EmployeeHistory';
 import EmployeeRequests from './EmployeeRequests';
 import EmployeeCalendar from './EmployeeCalendar';
@@ -448,108 +451,39 @@ function EmployeeDashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem('employeeId');
-    navigate('/login/empleado');
+    navigate('/');
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-8">
-              <div className="flex items-center">
-                <Clock className="h-8 w-8 text-blue-600 mr-2" />
-                <span className="text-xl font-bold text-gray-900">Portal Trabajador/a</span>
-              </div>
-              <Link
-                to="/empleado/fichar"
-                className={`px-3 py-2 font-medium ${
-                  location.pathname === '/empleado' || location.pathname === '/empleado/fichar'
-                    ? 'text-blue-600'
-                    : 'text-gray-900 hover:text-gray-700'
-                }`}
-              >
-                Fichar
-              </Link>
-              <Link
-                to="/empleado/historial"
-                className={`px-3 py-2 font-medium ${
-                  location.pathname === '/empleado/historial'
-                    ? 'text-blue-600'
-                    : 'text-gray-900 hover:text-gray-700'
-                }`}
-              >
-                Historial
-              </Link>
-              <Link
-                to="/empleado/solicitudes"
-                className={`px-3 py-2 font-medium ${
-                  location.pathname === '/empleado/solicitudes'
-                    ? 'text-blue-600'
-                    : 'text-gray-900 hover:text-gray-700'
-                }`}
-              >
-                Solicitudes Modificación de Fichaje
-              </Link>
-              <Link
-                to="/empleado/calendario"
-                className={`px-3 py-2 font-medium ${
-                  location.pathname === '/empleado/calendario'
-                    ? 'text-blue-600'
-                    : 'text-gray-900 hover:text-gray-700'
-                }`}
-              >
-                Calendario
-              </Link>
-              <Link
-                to="/empleado/perfil"
-                className={`px-3 py-2 font-medium ${
-                  location.pathname === '/empleado/perfil'
-                    ? 'text-blue-600'
-                    : 'text-gray-900 hover:text-gray-700'
-                }`}
-              >
-                Perfil
-              </Link>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <nav className="bg-white shadow-sm sticky top-0 z-40">
+        <div className="px-4">
+          <div className="flex justify-between items-center h-14">
+            <div className="flex items-center">
+              <Clock className="h-6 w-6 text-blue-600 mr-2" />
+              <span className="text-lg font-bold text-gray-900">TimeControl</span>
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <User className="h-5 w-5 text-gray-500" />
-                <div className="leading-tight text-right">
-                  <div className="text-sm font-medium text-gray-900">
-                    {employeeName ?? 'Empleado/a'}
-                  </div>
-                  <div className="text-xs text-gray-600">
-                    {userEmail ?? ''}
-                  </div>
-                </div>
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="flex items-center text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition-colors duration-200"
-              >
-                <LogOut className="h-5 w-5 mr-2" />
-                Cerrar sesión
-              </button>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center text-gray-700 hover:text-gray-900 p-2"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </nav>
 
-      {/* Aviso: SOLO cuando calendar_report_signed NO es TRUE */}
       {calendarSignaturePending && (
-        <div className="max-w-7xl mx-auto px-4 pt-4">
-          <div className="bg-orange-500 text-white p-4 rounded-lg shadow-lg flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FileText className="w-6 h-6" />
-              <div>
-                <h3 className="font-semibold">Firma de Calendario Pendiente</h3>
-                <p className="text-sm">Tu empresa ha solicitado que firmes el calendario anual. Por favor completa este proceso.</p>
-              </div>
+        <div className="px-4 pt-4">
+          <div className="bg-orange-500 text-white p-3 rounded-lg shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText className="w-5 h-5" />
+              <h3 className="font-semibold text-sm">Firma de Calendario Pendiente</h3>
             </div>
+            <p className="text-xs mb-2">Tu empresa ha solicitado que firmes el calendario anual.</p>
             <Link
               to="/empleado/calendario"
-              className="px-4 py-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-colors font-medium whitespace-nowrap"
+              className="block w-full text-center px-4 py-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-colors font-medium text-sm"
             >
               Firmar Ahora
             </Link>
@@ -565,6 +499,8 @@ function EmployeeDashboard() {
         <Route path="/calendario" element={<EmployeeCalendar />} />
         <Route path="/perfil" element={<EmployeeProfile />} />
       </Routes>
+
+      <MobileNav role="employee" />
     </div>
   );
 }

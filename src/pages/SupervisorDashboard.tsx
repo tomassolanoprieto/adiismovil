@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Routes, Route } from 'react-router-dom';
 import { LogOut, BarChart, Shield, User, Users, Clock, Search, X, Plus, CreditCard as Edit, Calendar, Settings, MapPin, ChevronLeft, ChevronRight, AlertTriangle, Bell } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import MobileNav from '../components/MobileNav';
 import SupervisorEmployees from './SupervisorEmployees';
 import SupervisorRequests from './SupervisorRequests';
 import SupervisorCalendar from './SupervisorCalendar';
@@ -1469,107 +1470,34 @@ export default function SupervisorDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-8">
-              <div className="flex items-center">
-                <Shield className="h-8 w-8 text-purple-600 mr-2" />
-                <span className="text-xl font-bold text-gray-900">Portal Coordinador/a</span>
-              </div>
-              <button
-                onClick={() => {
-                  setActiveTab('overview');
-                  navigate('/supervisor/centro');
-                }}
-                className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'overview' ? 'text-purple-600' : ''
-                }`}
-              >
-                Vista General
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('employees');
-                  navigate('/supervisor/centro/empleados');
-                }}
-                className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'employees' ? 'text-purple-600' : ''
-                }`}
-              >
-                Empleados
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('requests');
-                  navigate('/supervisor/centro/solicitudes');
-                }}
-                className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'requests' ? 'text-purple-600' : ''
-                }`}
-              >
-                Solicitudes Modificación de Fichaje
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('reports');
-                  navigate('/supervisor/centro/informes');
-                }}
-                className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'reports' ? 'text-purple-600' : ''
-                }`}
-              >
-                Informes
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('alerts');
-                  navigate('/supervisor/centro/alertas');
-                }}
-                className={`relative text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'alerts' ? 'text-purple-600' : ''
-                }`}
-              >
-                Alertas
-                {pendingAlertsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                    {pendingAlertsCount > 99 ? '99+' : pendingAlertsCount}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('calendar');
-                  navigate('/supervisor/centro/calendario');
-                }}
-                className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'calendar' ? 'text-purple-600' : ''
-                }`}
-              >
-                Calendario
-              </button>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <nav className="bg-white shadow-sm sticky top-0 z-40">
+        <div className="px-4">
+          <div className="flex justify-between items-center h-14">
+            <div className="flex items-center">
+              <Shield className="h-6 w-6 text-purple-600 mr-2" />
+              <span className="text-lg font-bold text-gray-900">Coordinador/a</span>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative flex items-center text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 p-2 rounded-lg transition-colors duration-200"
+                  className="relative flex items-center text-gray-700 hover:text-gray-900 p-2 rounded-lg transition-colors duration-200"
                 >
                   <Bell className="h-5 w-5" />
                   {unreadNotificationsCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center text-[10px]">
                       {unreadNotificationsCount}
                     </span>
                   )}
                 </button>
                 {showNotifications && (
-                  <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-y-auto">
-                    <div className="p-4 border-b border-gray-200">
-                      <h3 className="font-semibold text-gray-900">Notificaciones</h3>
+                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-y-auto">
+                    <div className="p-3 border-b border-gray-200">
+                      <h3 className="font-semibold text-gray-900 text-sm">Notificaciones</h3>
                     </div>
                     {notifications.length === 0 ? (
-                      <div className="p-4 text-center text-gray-500">
+                      <div className="p-4 text-center text-gray-500 text-sm">
                         No hay notificaciones
                       </div>
                     ) : (
@@ -1577,20 +1505,20 @@ export default function SupervisorDashboard() {
                         {notifications.map((notification) => (
                           <div
                             key={notification.id}
-                            className={`p-4 hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}
+                            className={`p-3 hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}
                           >
-                            <div className="flex justify-between items-start mb-2">
-                              <h4 className="font-medium text-gray-900 text-sm">{notification.title}</h4>
+                            <div className="flex justify-between items-start mb-1">
+                              <h4 className="font-medium text-gray-900 text-xs">{notification.title}</h4>
                               <button
                                 onClick={() => deleteNotification(notification.id)}
                                 className="text-gray-400 hover:text-red-600"
                               >
-                                <X className="h-4 w-4" />
+                                <X className="h-3 w-3" />
                               </button>
                             </div>
-                            <p className="text-sm text-gray-600 mb-2">{notification.message}</p>
+                            <p className="text-xs text-gray-600 mb-1">{notification.message}</p>
                             <div className="flex justify-between items-center">
-                              <span className="text-xs text-gray-400">
+                              <span className="text-[10px] text-gray-400">
                                 {new Date(notification.created_at).toLocaleDateString('es-ES', {
                                   day: '2-digit',
                                   month: 'short',
@@ -1601,7 +1529,7 @@ export default function SupervisorDashboard() {
                               {!notification.is_read && (
                                 <button
                                   onClick={() => markNotificationAsRead(notification.id)}
-                                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
                                 >
                                   Marcar como leída
                                 </button>
@@ -1615,11 +1543,13 @@ export default function SupervisorDashboard() {
                 )}
               </div>
               <button
-                onClick={() => navigate('/login/supervisor/centro')}
-                className="flex items-center text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition-colors duration-200"
+                onClick={() => {
+                  localStorage.removeItem('supervisorEmail');
+                  navigate('/');
+                }}
+                className="flex items-center text-gray-700 hover:text-gray-900 p-2"
               >
-                <LogOut className="h-5 w-5 mr-2" />
-                Cerrar sesión
+                <LogOut className="h-5 w-5" />
               </button>
             </div>
           </div>
@@ -1634,6 +1564,8 @@ export default function SupervisorDashboard() {
         <Route path="/alertas" element={<SupervisorAlerts />} />
         <Route path="/calendario" element={<SupervisorCalendar />} />
       </Routes>
+
+      <MobileNav role="coordinator" />
     </div>
   );
 }
