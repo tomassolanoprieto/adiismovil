@@ -480,6 +480,23 @@ function TimeControl() {
       <div className="space-y-6 max-w-md mx-auto">
         <div className="bg-white p-6 rounded-xl shadow-lg">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Control de Tiempo</h2>
+          {/* ✅ Botón para ir a Trama e-learning */}
+<div className="mb-6">
+  <a
+    href="https://elearning.trama.org/login/loginPage"
+    target="_blank"
+    rel="noopener noreferrer"
+    className="group inline-flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-800 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+  >
+    <span className="flex items-center gap-2">
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm transition group-hover:bg-blue-700">
+        <LogIn className="h-4 w-4" />
+      </span>
+      <span>Accede a Trama e-learning</span>
+    </span>
+    <span className="text-xs text-gray-500 group-hover:text-blue-600">Abrir ↗</span>
+  </a>
+</div>
 
           <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded">
             <p className="text-sm text-blue-900 leading-relaxed">
