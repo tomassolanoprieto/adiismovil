@@ -67,6 +67,9 @@ export default function EmployeeCalendar() {
   const [calendarReportPdfUrl, setCalendarReportPdfUrl] = useState<string | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
 
+  const [yearlyHolidays, setYearlyHolidays] = useState<any[]>([]);
+  const [yearlyVacations, setYearlyVacations] = useState<any[]>([]);
+
   const getEntryTypeText = (type: string) => {
     switch (type) {
       case 'clock_in': return 'Entrada';
@@ -96,40 +99,52 @@ export default function EmployeeCalendar() {
   };
 
   // === FIRMA DEL COORDINADOR: intenta encontrar una firma válida sin romper si faltan columnas ===
-  const fetchSupervisorSignature = async (companyId: string, workCenters: string[] = []) => {
-    try {
-      const { data: appr } = await supabase
-        .from('calendar_approvals')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+const fetchSupervisorSignature = async (companyId: string, workCenters: string[] = []) => {
+  const currentYear = new Date().getFullYear();
 
+  // 1) ✅ Primero: signature guardada en calendar_approvals (ideal porque el empleado suele poder leerlo)
+  try {
+    let q = supabase
+      .from('calendar_approvals')
+      .select('supervisor_signature, coordinator_signature, supervisor_email, created_at, work_centers, year')
+      .eq('company_id', companyId)
+      .eq('year', currentYear)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (workCenters?.length) {
+      q = q.overlaps('work_centers', workCenters);
+    }
+
+    const { data: appr, error } = await q.maybeSingle();
+    if (!error) {
       const sig =
-        (appr as any)?.supervisor_signature ??
-        (appr as any)?.coordinator_signature ??
-        (appr as any)?.signature ??
-        null;
+  (appr as any)?.supervisor_signature ??      // ✅ NUEVO (el que guardamos)
+  (appr as any)?.coordinator_signature ??
+  (appr as any)?.signature ??
+  null;
+
       if (sig) return sig;
-    } catch { /* noop */ }
+    }
+  } catch {/* noop */}
 
-    try {
-      let q = supabase
-        .from('supervisor_profiles')
-        .select('signature, signature_image, work_centers')
-        .eq('company_id', companyId)
-        .eq('is_active', true);
+  // 2) Fallback: supervisor_profiles (esto puede fallar por RLS, pero lo dejamos como plan B)
+  try {
+    let q2 = supabase
+      .from('supervisor_profiles')
+      .select('signature, signature_image, work_centers')
+      .eq('company_id', companyId)
+      .eq('is_active', true);
 
-      if (workCenters?.length) q = q.overlaps('work_centers', workCenters);
+    if (workCenters?.length) q2 = q2.overlaps('work_centers', workCenters);
 
-      const { data: sup } = await q.limit(1);
-      const sig = sup?.[0]?.signature || sup?.[0]?.signature_image || null;
-      if (sig) return sig;
-    } catch { /* noop */ }
+    const { data: sup } = await q2.limit(1);
+    const sig = sup?.[0]?.signature || sup?.[0]?.signature_image || null;
+    if (sig) return sig;
+  } catch {/* noop */}
 
-    return null;
-  };
+  return null;
+};
 
   const addImageSmart = (doc: any, dataUrl: string, x: number, y: number, w: number, h: number) => {
     const fmt = dataUrl.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
@@ -237,16 +252,24 @@ export default function EmployeeCalendar() {
       // Festivos
       let holidaysData: any[] = [];
       if (employeeProfile?.company_id && employeeProfile?.work_centers?.length) {
-        let holidaysQuery = supabase
-          .from('holidays')
-          .select('id, date, name, work_center, company_id')
-          .eq('company_id', employeeProfile.company_id)
-          .gte('date', startOfMonthStr)
-          .lte('date', endOfMonthStr);
-        holidaysQuery = holidaysQuery.in('work_center', employeeProfile.work_centers);
-        const { data: holData, error: holidaysError } = await holidaysQuery;
-        if (holidaysError) throw holidaysError;
-        holidaysData = holData || [];
+        const allHolidays = [];
+        for (const workCenter of employeeProfile.work_centers) {
+          const { data: holData, error: holidaysError } = await supabase
+            .from('holidays')
+            .select('id, date, name, work_centers, company_id, holiday_type')
+            .eq('company_id', employeeProfile.company_id)
+            .gte('date', startOfMonthStr)
+            .lte('date', endOfMonthStr)
+            .contains('work_centers', [workCenter]);
+
+          if (holidaysError) throw holidaysError;
+          if (holData) allHolidays.push(...holData);
+        }
+
+        const uniqueHolidays = Array.from(
+          new Map(allHolidays.map(h => [h.id, h])).values()
+        );
+        holidaysData = uniqueHolidays;
       }
 
       // Fichajes
@@ -381,6 +404,73 @@ export default function EmployeeCalendar() {
       setLoading(false);
     }
   };
+
+  const fetchYearlyHolidays = async () => {
+    try {
+      if (!employeeData?.id || !employeeData?.company_id) return;
+
+      const currentYear = new Date().getFullYear();
+      const yearStart = `${currentYear}-01-01`;
+      const yearEnd = `${currentYear}-12-31`;
+
+      const allHolidays = [];
+      if (employeeData?.work_centers?.length) {
+        for (const workCenter of employeeData.work_centers) {
+          const { data: holData } = await supabase
+            .from('holidays')
+            .select('*')
+            .eq('company_id', employeeData.company_id)
+            .gte('date', yearStart)
+            .lte('date', yearEnd)
+            .contains('work_centers', [workCenter])
+            .order('date', { ascending: true });
+
+          if (holData) allHolidays.push(...holData);
+        }
+      }
+
+      const uniqueHolidays = Array.from(new Map(allHolidays.map(h => [h.id, h])).values());
+      setYearlyHolidays(uniqueHolidays);
+    } catch (error) {
+      console.error('Error fetching yearly holidays:', error);
+    }
+  };
+
+  const fetchYearlyVacations = async () => {
+    try {
+      if (!employeeData?.id) {
+        setYearlyVacations([]);
+        return;
+      }
+
+      const currentYear = new Date().getFullYear();
+      const yearStart = `${currentYear}-01-01`;
+      const yearEnd = `${currentYear}-12-31`;
+
+      const { data: vacationsData, error: vacErr } = await supabase
+        .from('employee_vacations')
+        .select('*')
+        .eq('employee_id', employeeData.id)
+        .or(`and(start_date.lte.${yearEnd},end_date.gte.${yearStart})`)
+        .order('start_date', { ascending: true });
+
+      if (vacErr) throw vacErr;
+
+      setYearlyVacations(vacationsData || []);
+    } catch (error) {
+      console.error('Error fetching yearly vacations:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (employeeData) {
+      fetchYearlyHolidays();
+      fetchYearlyVacations();
+    } else {
+      setYearlyHolidays([]);
+      setYearlyVacations([]);
+    }
+  }, [employeeData]);
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -592,14 +682,15 @@ export default function EmployeeCalendar() {
     const endStr   = endDate.toISOString().split('T')[0];
 
     // HORARIOS
-    const { data: schedules, error: schedulesError } = await supabase
-      .from('employee_schedules')
-      .select('*')
-      .eq('employee_id', employeeId)
-      .eq('enabled', true)
-      .gte('date', startStr)
-      .lte('date', endStr);
-    if (schedulesError) throw schedulesError;
+// HORARIOS (NO filtrar enabled aquí; lo aplicamos al construir eventos)
+const { data: schedules, error: schedulesError } = await supabase
+  .from('employee_schedules')
+  .select('*')
+  .eq('employee_id', employeeId)
+  .gte('date', startStr)
+  .lte('date', endStr);
+
+if (schedulesError) throw schedulesError;
 
     // FICHAJES
     const { data: timeEntries, error: timeError } = await supabase
@@ -613,20 +704,25 @@ export default function EmployeeCalendar() {
 
     // FESTIVOS
     let holidays: any[] = [];
-    if (employeeProfile?.company_id) {
-      let holidaysQuery = supabase
-        .from('holidays')
-        .select('id, date, name, work_center')
-        .eq('company_id', employeeProfile.company_id)
-        .gte('date', startStr)
-        .lte('date', endStr);
+    if (employeeProfile?.company_id && employeeProfile?.work_centers?.length) {
+      const allHolidays = [];
+      for (const workCenter of employeeProfile.work_centers) {
+        const { data: holData, error: holErr } = await supabase
+          .from('holidays')
+          .select('id, date, name, work_centers, holiday_type')
+          .eq('company_id', employeeProfile.company_id)
+          .gte('date', startStr)
+          .lte('date', endStr)
+          .contains('work_centers', [workCenter]);
 
-      if (employeeProfile?.work_centers?.length) {
-        holidaysQuery = holidaysQuery.in('work_center', employeeProfile.work_centers);
+        if (holErr) throw holErr;
+        if (holData) allHolidays.push(...holData);
       }
-      const { data: holidaysData, error: holErr } = await holidaysQuery;
-      if (holErr) throw holErr;
-      holidays = holidaysData || [];
+
+      const uniqueHolidays = Array.from(
+        new Map(allHolidays.map(h => [h.id, h])).values()
+      );
+      holidays = uniqueHolidays;
     }
 
     // VACACIONES
@@ -640,25 +736,28 @@ export default function EmployeeCalendar() {
     const events: CalendarEvent[] = [];
 
     (schedules || []).forEach((sch: EmployeeSchedule) => {
-      if (sch.morning_start && sch.morning_end) {
-        events.push({
-          title: `Horario: ${sch.morning_start} - ${sch.morning_end}`,
-          start: `${sch.date}T${sch.morning_start}`,
-          end:   `${sch.date}T${sch.morning_end}`,
-          color: '#3b82f6',
-          type: 'workschedule'
-        });
-      }
-      if (sch.afternoon_start && sch.afternoon_end) {
-        events.push({
-          title: `Horario: ${sch.afternoon_start} - ${sch.afternoon_end}`,
-          start: `${sch.date}T${sch.afternoon_start}`,
-          end:   `${sch.date}T${sch.afternoon_end}`,
-          color: '#3b82f6',
-          type: 'workschedule'
-        });
-      }
+  // Mañana: igual que calendario (no depende de enabled)
+  if (sch.morning_start && sch.morning_end) {
+    events.push({
+      title: `Horario: ${sch.morning_start} - ${sch.morning_end}`,
+      start: `${sch.date}T${sch.morning_start}`,
+      end:   `${sch.date}T${sch.morning_end}`,
+      color: '#3b82f6',
+      type: 'workschedule'
     });
+  }
+
+  // Tarde: solo si enabled (igual que calendario)
+  if (sch.enabled && sch.afternoon_start && sch.afternoon_end) {
+    events.push({
+      title: `Horario: ${sch.afternoon_start} - ${sch.afternoon_end}`,
+      start: `${sch.date}T${sch.afternoon_start}`,
+      end:   `${sch.date}T${sch.afternoon_end}`,
+      color: '#3b82f6',
+      type: 'workschedule'
+    });
+  }
+});
 
     (timeEntries || []).forEach((entry: any) => {
       const entryType =
@@ -755,71 +854,8 @@ export default function EmployeeCalendar() {
         .gte('start_date', startDate.toISOString().split('T')[0])
         .lte('end_date', endDate.toISOString().split('T')[0]);
 
-      const allEvents: CalendarEvent[] = [];
-
-      (schedules || []).forEach((schedule: any) => {
-        if (schedule.morning_start && schedule.morning_end) {
-          allEvents.push({
-            id: `${schedule.id}-morning`,
-            title: `Mañana: ${schedule.morning_start} - ${schedule.morning_end}`,
-            start: new Date(`${schedule.date}T${schedule.morning_start}`),
-            end: new Date(`${schedule.date}T${schedule.morning_end}`),
-            color: '#3b82f6',
-            type: 'workschedule'
-          });
-        }
-        if (schedule.afternoon_start && schedule.afternoon_end) {
-          allEvents.push({
-            id: `${schedule.id}-afternoon`,
-            title: `Tarde: ${schedule.afternoon_start} - ${schedule.afternoon_end}`,
-            start: new Date(`${schedule.date}T${schedule.afternoon_start}`),
-            end: new Date(`${schedule.date}T${schedule.afternoon_end}`),
-            color: '#3b82f6',
-            type: 'workschedule'
-          });
-        }
-      });
-
-      (timeEntries || []).forEach((entry: any) => {
-        allEvents.push({
-          id: entry.id,
-          title: entry.entry_type || 'Fichaje',
-          start: new Date(entry.timestamp),
-          end: new Date(entry.timestamp),
-          color:
-            entry.entry_type === 'clock_in' ? '#22c55e' :
-            entry.entry_type === 'clock_out' ? '#ef4444' :
-            entry.entry_type === 'break_start' ? '#f59e0b' : '#84cc16',
-          type: 'timeentry',
-          details: { entryType: entry.entry_type }
-        });
-      });
-
-      (holidays || []).forEach((holiday: any) => {
-        allEvents.push({
-          id: holiday.id,
-          title: holiday.name,
-          start: new Date(holiday.date),
-          end: new Date(holiday.date),
-          color: '#f97316',
-          type: 'holiday'
-        });
-      });
-
-      (vacations || []).forEach((vacation: any) => {
-        const s = new Date(vacation.start_date);
-        const e = new Date(vacation.end_date);
-        for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-          allEvents.push({
-            id: `vacation-${vacation.id}-${d.toISOString()}`,
-            title: 'Vacaciones',
-            start: new Date(d),
-            end: new Date(d),
-            color: '#8b5cf6',
-            type: 'vacation'
-          });
-        }
-      });
+      // ✅ En vez de reconstruir todo “a mano”, usa la función robusta (incluye horarios)
+const allEvents: CalendarEvent[] = await fetchEventsForReportRange(startDate, endDate);
 
       const doc = new jsPDF();
       doc.setFontSize(16);
@@ -841,13 +877,22 @@ export default function EmployeeCalendar() {
         columnStyles: { 0: { cellWidth: 95 }, 1: { cellWidth: 95 } }
       });
 
-      const eventsByDay: Record<string, CalendarEvent[]> = {};
-      allEvents.forEach(event => {
-        const eventDate = new Date(event.start as any);
-        if (isNaN(eventDate.getTime())) return;
-        const key = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
-        (eventsByDay[key] ||= []).push(event);
-      });
+      const getEventDayKey = (ev: CalendarEvent) => {
+  if (typeof ev.start === 'string') return ev.start.slice(0, 10); // "YYYY-MM-DD"
+  const d = ev.start instanceof Date ? ev.start : new Date(ev.start as any);
+  if (isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const eventsByDay: Record<string, CalendarEvent[]> = {};
+allEvents.forEach((event) => {
+  const key = getEventDayKey(event);
+  if (!key) return;
+  (eventsByDay[key] ||= []).push(event);
+});
 
       const allDays: { date: Date; events: CalendarEvent[] }[] = [];
       for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
@@ -1349,6 +1394,80 @@ export default function EmployeeCalendar() {
                 <FileText className="w-5 h-5" />
                 Ver Informe
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Listado de Festivos del Año (solo cuando está activo solo Festivos) */}
+        {yearlyHolidays.length > 0 && (
+          <div className="mt-6 bg-white rounded-xl shadow-lg p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-orange-500" />
+              Festivos del Año {new Date().getFullYear()}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {yearlyHolidays.map((holiday) => (
+                <div key={holiday.id} className="border-l-4 border-orange-500 bg-orange-50 p-3 rounded-lg">
+                  <div className="font-medium text-gray-900">{holiday.name}</div>
+                  <div className="text-sm text-gray-600 mt-1">
+                    {new Date(holiday.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </div>
+                  {holiday.holiday_type && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Tipo: {
+                        holiday.holiday_type === 'nacional' ? 'Nacional' :
+                        holiday.holiday_type === 'comunidad' ? 'Comunidad' :
+                        holiday.holiday_type === 'municipio' ? 'Municipio' : holiday.holiday_type
+                      }
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Listado de Vacaciones del Año */}
+        {yearlyVacations.length > 0 && (
+          <div className="mt-6 bg-white rounded-xl shadow-lg p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-purple-500" />
+              Mis Vacaciones del Año {new Date().getFullYear()}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {yearlyVacations.map((vacation) => {
+                const startDate = new Date(vacation.start_date);
+                const endDate = new Date(vacation.end_date);
+                const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+                return (
+                  <div key={vacation.id} className="border-l-4 border-purple-500 bg-purple-50 p-4 rounded-lg">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900">
+                          {startDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} - {endDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {daysDiff} día{daysDiff !== 1 ? 's' : ''}
+                        </div>
+                        {vacation.notes && (
+                          <div className="text-xs text-gray-500 mt-2 italic">
+                            {vacation.notes}
+                          </div>
+                        )}
+                      </div>
+                      <div className={`px-2 py-1 text-xs font-medium rounded ${
+                        vacation.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        vacation.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {vacation.status === 'approved' ? 'Aprobada' :
+                         vacation.status === 'pending' ? 'Pendiente' : vacation.status}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
