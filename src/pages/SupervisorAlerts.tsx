@@ -91,14 +91,11 @@ export default function SupervisorAlerts() {
         .from('coordinator_alarms')
         .select(`
           *,
-          employee:employee_profiles(fiscal_name, work_centers, exclude_from_alarms)
+          employee:employee_profiles(fiscal_name, work_centers)
         `)
         .eq('supervisor_id', supervisorId)
         .order('alarm_date', { ascending: false })
         .order('created_at', { ascending: false });
-
-      // Filtrar empleados excluidos del sistema de alarmas
-      const filteredAlarms = alarmsData?.filter(alarm => !alarm.employee?.exclude_from_alarms) || [];
 
       console.log('Alarms query result:', { alarmsData, alarmsError, count: alarmsData?.length });
 
@@ -108,13 +105,12 @@ export default function SupervisorAlerts() {
       }
 
       console.log('✓ Alarms loaded successfully:', alarmsData?.length || 0);
-      console.log('Filtered alarms (excluding marked employees):', filteredAlarms.length);
-      console.log('Alarms data:', filteredAlarms);
+      console.log('Alarms data:', alarmsData);
 
-      setAlarms(filteredAlarms);
+      setAlarms(alarmsData || []);
 
-      if (filteredAlarms && filteredAlarms.length > 0) {
-        toast.success(`${filteredAlarms.length} alarma(s) cargada(s)`);
+      if (alarmsData && alarmsData.length > 0) {
+        toast.success(`${alarmsData.length} alarma(s) cargada(s)`);
       } else {
         console.log('⚠️ No alarms found for supervisor');
       }
