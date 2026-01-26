@@ -5,10 +5,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Routes, Route } from 'react-router-dom';
 import { LogOut, BarChart, Shield, User, Users, Clock, Search, X, Plus, CreditCard as Edit, Calendar, Settings, MapPin, ChevronLeft, ChevronRight, AlertTriangle, Bell, FileText } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
-import MobileHeader from '../components/MobileHeader';
-import SupervisorMobileNav from '../components/SupervisorMobileNav';
 import { supabase } from '../lib/supabase';
+import MobileNav from '../components/MobileNav';
 import SupervisorEmployees from './SupervisorEmployees';
 import SupervisorRequests from './SupervisorRequests';
 import SupervisorCalendar from './SupervisorCalendar';
