@@ -17,6 +17,7 @@ import EmployeeRequests from './EmployeeRequests';
 import EmployeeCalendar from './EmployeeCalendar';
 import EmployeeProfile from './EmployeeProfile';
 import MobileNav from '../components/MobileNav';
+import MobileHeader from '../components/MobileHeader';
 
 type EntryType = 'clock_in' | 'break_start' | 'break_end' | 'clock_out';
 
