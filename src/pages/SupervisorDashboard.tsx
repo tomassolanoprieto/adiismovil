@@ -3,7 +3,7 @@
 // — Cálculo robusto: segmentos clock_in→clock_out, pausas, cruces de medianoche, horas nocturnas (22:00–06:00)
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Routes, Route } from 'react-router-dom';
+import { useNavigate, Routes, Route, useLocation } from 'react-router-dom';
 import { LogOut, BarChart, Shield, User, Users, Clock, Search, X, Plus, CreditCard as Edit, Calendar, Settings, MapPin, ChevronLeft, ChevronRight, AlertTriangle, Bell, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import MobileNav from '../components/MobileNav';
