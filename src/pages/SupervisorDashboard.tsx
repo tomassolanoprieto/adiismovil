@@ -4,11 +4,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Routes, Route } from 'react-router-dom';
-import { LogOut, BarChart, Shield, User, Users, Clock, Search, X, Plus, CreditCard as Edit, Calendar, Settings, MapPin, ChevronLeft, ChevronRight, AlertTriangle, Bell, FileText } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
-import MobileHeader from '../components/MobileHeader';
-import SupervisorMobileNav from '../components/SupervisorMobileNav';
+import { LogOut, BarChart, Shield, User, Users, Clock, Search, X, Plus, CreditCard as Edit, Calendar, Settings, MapPin, ChevronLeft, ChevronRight, AlertTriangle, Bell } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import MobileNav from '../components/MobileNav';
 import SupervisorEmployees from './SupervisorEmployees';
 import SupervisorRequests from './SupervisorRequests';
 import SupervisorCalendar from './SupervisorCalendar';
@@ -655,7 +653,7 @@ function Overview() {
   );
 
   return (
-    <div className="p-8 pt-6">
+    <div className="p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-2xl font-bold mb-2">Vista General</h1>
@@ -1229,30 +1227,9 @@ export default function SupervisorDashboard() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [supervisorName, setSupervisorName] = useState<string | null>(null);
   const navigate = useNavigate();
-  const location = useLocation();
 
   const supervisorEmail = localStorage.getItem('supervisorEmail');
-
-  useEffect(() => {
-    const getSupervisorInfo = async () => {
-      if (!supervisorEmail) return;
-
-      const { data, error } = await supabase
-        .from('supervisor_profiles')
-        .select('fiscal_name')
-        .eq('email', supervisorEmail)
-        .eq('is_active', true)
-        .maybeSingle();
-
-      if (!error && data) {
-        setSupervisorName(data.fiscal_name);
-      }
-    };
-
-    getSupervisorInfo();
-  }, [supervisorEmail]);
 
   useEffect(() => {
     const initializeAlarms = async () => {
@@ -1492,43 +1469,103 @@ export default function SupervisorDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem('supervisorEmail');
-    navigate('/login/supervisor/centro');
-  };
-
-  const navItems = [
-    { path: '/supervisor/centro', icon: BarChart, label: 'General' },
-    { path: '/supervisor/centro/empleados', icon: Users, label: 'Empleados' },
-    { path: '/supervisor/centro/solicitudes', icon: FileText, label: 'Solicitudes' },
-    { path: '/supervisor/centro/informes', icon: Clock, label: 'Informes' },
-    { path: '/supervisor/centro/alertas', icon: AlertTriangle, label: 'Alertas', badge: pendingAlertsCount },
-  ];
-
   return (
-    <div className="min-h-screen bg-gray-50 pb-16">
-      <MobileHeader
-        title="Coordinador/a"
-        subtitle={supervisorName || undefined}
-        userName={supervisorName || undefined}
-        userEmail={supervisorEmail || undefined}
-        onLogout={handleLogout}
-        icon={<Shield className="h-6 w-6 text-blue-600" />}
-      />
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <nav className="bg-white shadow-sm sticky top-0 z-40">
+        <div className="px-4">
+          <div className="flex justify-between items-center h-14">
+            <div className="flex items-center">
+              <Shield className="h-6 w-6 text-purple-600 mr-2" />
+              <span className="text-lg font-bold text-gray-900">Coordinador/a</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="relative">
+                <button
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className="relative flex items-center text-gray-700 hover:text-gray-900 p-2 rounded-lg transition-colors duration-200"
+                >
+                  <Bell className="h-5 w-5" />
+                  {unreadNotificationsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center text-[10px]">
+                      {unreadNotificationsCount}
+                    </span>
+                  )}
+                </button>
+                {showNotifications && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-y-auto">
+                    <div className="p-3 border-b border-gray-200">
+                      <h3 className="font-semibold text-gray-900 text-sm">Notificaciones</h3>
+                    </div>
+                    {notifications.length === 0 ? (
+                      <div className="p-4 text-center text-gray-500 text-sm">
+                        No hay notificaciones
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-gray-200">
+                        {notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={`p-3 hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <h4 className="font-medium text-gray-900 text-xs">{notification.title}</h4>
+                              <button
+                                onClick={() => deleteNotification(notification.id)}
+                                className="text-gray-400 hover:text-red-600"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <p className="text-xs text-gray-600 mb-1">{notification.message}</p>
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(notification.created_at).toLocaleDateString('es-ES', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                              {!notification.is_read && (
+                                <button
+                                  onClick={() => markNotificationAsRead(notification.id)}
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
+                                >
+                                  Marcar como leída
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('supervisorEmail');
+                  navigate('/');
+                }}
+                className="flex items-center text-gray-700 hover:text-gray-900 p-2"
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
 
-      <div className="pt-14">
-        <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/empleados" element={<SupervisorEmployees />} />
-          <Route path="/solicitudes" element={<SupervisorRequests />} />
-          <Route path="/informes" element={<SupervisorReports />} />
-          <Route path="/alertas" element={<SupervisorAlerts />} />
-          <Route path="/calendario" element={<SupervisorCalendar />} />
-        </Routes>
-      </div>
+      <Routes>
+        <Route path="/" element={<Overview />} />
+        <Route path="/empleados" element={<SupervisorEmployees />} />
+        <Route path="/solicitudes" element={<SupervisorRequests />} />
+        <Route path="/informes" element={<SupervisorReports />} />
+        <Route path="/alertas" element={<SupervisorAlerts />} />
+        <Route path="/calendario" element={<SupervisorCalendar />} />
+      </Routes>
 
-      <SupervisorMobileNav items={navItems} />
+      <MobileNav role="coordinator" />
     </div>
   );
 }
