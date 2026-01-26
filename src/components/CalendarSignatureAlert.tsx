@@ -15,15 +15,8 @@ export default function CalendarSignatureAlert() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // ✅ Igual que en CompanyCalendar: normalizar centros para comparar bien
-  const normalizeCenter = (s: any) =>
-    (s ?? '').toString().trim().replace(/\s+/g, ' ').toUpperCase();
-
-  const unique = (arr: string[]) => Array.from(new Set(arr));
-
   useEffect(() => {
     checkPendingCalendars();
-    // Si quieres que se refresque automáticamente, puedes añadir un interval aquí.
   }, []);
 
   const checkPendingCalendars = async () => {
@@ -34,128 +27,60 @@ export default function CalendarSignatureAlert() {
         return;
       }
 
-      // 1) Cargar supervisor + sus centros
-      const { data: supervisorData, error: supervisorErr } = await supabase
+      const { data: supervisorData } = await supabase
         .from('supervisor_profiles')
-        .select('company_id, work_centers, is_active, supervisor_type')
+        .select('company_id, work_centers')
         .eq('email', supervisorEmail)
         .maybeSingle();
 
-      if (supervisorErr) {
-        console.error('Error fetching supervisor:', supervisorErr);
+      if (!supervisorData) {
         setLoading(false);
         return;
       }
 
-      if (!supervisorData || !supervisorData.company_id) {
-        setLoading(false);
-        return;
-      }
-
-      // (Opcional pero recomendado): si no es supervisor center / no está activo, no mostrar
-      if (supervisorData.is_active === false) {
-        setLoading(false);
-        return;
-      }
-
-      const supervisorWorkCenters = unique(
-        (supervisorData.work_centers || [])
-          .map(normalizeCenter)
-          .filter(Boolean)
-      );
-
-      if (supervisorWorkCenters.length === 0) {
-        // Si el supervisor no tiene centros asignados, nunca debe ver alert
-        setShowAlert(false);
-        setLoading(false);
-        return;
-      }
-
-      // 2) ✅ Buscar approvals SOLO de centros que coincidan con los del supervisor
-      //    IMPORTANTE: hay 1 fila por centro, así que NO podemos hacer "limit(1)" global.
-      const currentYear = new Date().getFullYear();
-
-      const { data: approvals, error: approvalsErr } = await supabase
+      const { data: approvals } = await supabase
         .from('calendar_approvals')
-        .select('id, work_centers, calendars_sent_to_employees, created_at, year, status')
+        .select('calendars_sent_to_employees')
         .eq('company_id', supervisorData.company_id)
-        .eq('year', currentYear)
-        .eq('status', 'company_approved')
-        .overlaps('work_centers', supervisorWorkCenters)
-        .order('created_at', { ascending: false });
-
-      if (approvalsErr) {
-        console.error('Error fetching calendar approvals:', approvalsErr);
-        setShowAlert(false);
-        setLoading(false);
-        return;
-      }
+        .order('created_at', { ascending: false })
+        .limit(1);
 
       if (!approvals || approvals.length === 0) {
-        // No hay approvals para sus centros => no hay alert
         setShowAlert(false);
         setLoading(false);
         return;
       }
 
-      // 3) Quedarnos SOLO con approvals “pendientes de envío a empleados”
-      //    (calendars_sent_to_employees != true)
-      const pendingApprovals = approvals.filter(
-        (a: any) => a.calendars_sent_to_employees !== true
-      );
-
-      if (pendingApprovals.length === 0) {
-        // Todo enviado ya para sus centros
+      if (approvals[0].calendars_sent_to_employees === true) {
         setShowAlert(false);
         setLoading(false);
         return;
       }
 
-      // 4) Centros aprobados pendientes (esto es la clave para NO alertar a centros no seleccionados)
-      const approvedCentersPending = unique(
-        pendingApprovals
-          .flatMap((a: any) => Array.isArray(a.work_centers) ? a.work_centers : [])
-          .map(normalizeCenter)
-          .filter(Boolean)
-      );
-
-      if (approvedCentersPending.length === 0) {
-        setShowAlert(false);
-        setLoading(false);
-        return;
-      }
-
-      // 5) Empleados pendientes SOLO en esos centros (y que todavía no tengan solicitud de firma)
-      const { data: employeesData, error: empErr } = await supabase
+      const { data: employeesData } = await supabase
         .from('employee_profiles')
         .select('id, fiscal_name, work_centers, calendar_signature_requested, calendar_report_signed')
         .eq('company_id', supervisorData.company_id)
         .eq('is_active', true)
         .or('calendar_signature_requested.is.null,calendar_signature_requested.eq.false');
 
-      if (empErr) {
-        console.error('Error fetching employees:', empErr);
-        setShowAlert(false);
-        setLoading(false);
-        return;
-      }
+      if (employeesData && employeesData.length > 0) {
+        const supervisorWorkCenters = supervisorData.work_centers || [];
+        const pendingEmployees = employeesData.filter((emp: Employee) =>
+          emp.work_centers?.some((center: string) => supervisorWorkCenters.includes(center))
+        );
 
-      const employeesList = (employeesData || []) as Employee[];
-
-      const pendingEmployees = employeesList.filter((emp) => {
-        const empCenters = (emp.work_centers || []).map(normalizeCenter).filter(Boolean);
-        return empCenters.some((c) => approvedCentersPending.includes(c));
-      });
-
-      if (pendingEmployees.length > 0) {
-        setEmployeesCount(pendingEmployees.length);
-        setShowAlert(true);
+        if (pendingEmployees.length > 0) {
+          setEmployeesCount(pendingEmployees.length);
+          setShowAlert(true);
+        } else {
+          setShowAlert(false);
+        }
       } else {
         setShowAlert(false);
       }
     } catch (error) {
       console.error('Error checking pending calendars:', error);
-      setShowAlert(false);
     } finally {
       setLoading(false);
     }

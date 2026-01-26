@@ -34,28 +34,12 @@ function SupervisorRequests() {
 
   useEffect(() => {
     fetchWorkCenters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * ✅ CLAVE: cargar contadores de pendientes para TODOS los centros
-   * en cuanto tengamos workCenters (sin necesidad de selectedWorkCenter)
-   */
-  useEffect(() => {
-    if (supervisorEmail && workCenters.length > 0) {
-      fetchPendingCountsByCenter();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supervisorEmail, workCenters]);
-
-  /**
-   * ✅ Listado SOLO cuando hay centro seleccionado
-   */
   useEffect(() => {
     if (supervisorEmail && workCenters.length > 0 && selectedWorkCenter) {
       fetchRequests();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supervisorEmail, selectedWorkCenter, filter, startDate, endDate, workCenters]);
 
   const fetchWorkCenters = async () => {
@@ -73,11 +57,6 @@ function SupervisorRequests() {
 
       if (supervisorData?.work_centers?.length > 0) {
         setWorkCenters(supervisorData.work_centers);
-
-        // Si solo hay uno, seleccionarlo automáticamente (opcional, pero práctico)
-        if (supervisorData.work_centers.length === 1) {
-          setSelectedWorkCenter(supervisorData.work_centers[0]);
-        }
       } else {
         setError('No tienes centros de trabajo asignados');
       }
@@ -87,103 +66,10 @@ function SupervisorRequests() {
     }
   };
 
-  /**
-   * ✅ NUEVO: calcula pendientes por centro para TODOS los centros del supervisor
-   * Esto es lo que hace que el badge rojo se vea en la pantalla de selección.
-   */
-  const fetchPendingCountsByCenter = async () => {
-    try {
-      if (!supervisorEmail) return;
-      if (!workCenters || workCenters.length === 0) return;
-
-      // 1) company_id del supervisor
-      const { data: supervisorData, error: supervisorError } = await supabase
-        .from('supervisor_profiles')
-        .select('company_id')
-        .eq('email', supervisorEmail)
-        .eq('is_active', true)
-        .single();
-
-      if (supervisorError) throw supervisorError;
-      if (!supervisorData?.company_id) return;
-
-      // 2) empleados de la empresa que estén en CUALQUIERA de los centros del supervisor
-      //    (overlaps para arrays)
-      const { data: employeesData, error: employeesError } = await supabase
-        .from('employee_profiles')
-        .select('id, work_centers')
-        .eq('company_id', supervisorData.company_id)
-        .overlaps('work_centers', workCenters);
-
-      if (employeesError) throw employeesError;
-
-      if (!employeesData || employeesData.length === 0) {
-        setPendingRequestsByWorkCenter({});
-        return;
-      }
-
-      const employeeIds = employeesData.map((e: any) => e.id);
-
-      // 3) traer SOLO pending de ambas tablas (más eficiente)
-      let timePendingQuery = supabase
-        .from('time_requests')
-        .select('id, employee_id')
-        .in('employee_id', employeeIds)
-        .eq('status', 'pending');
-
-      let plannerPendingQuery = supabase
-        .from('planner_requests')
-        .select('id, employee_id')
-        .in('employee_id', employeeIds)
-        .eq('status', 'pending');
-
-      // (Opcional) si quieres que los contadores respeten filtros de fechas:
-      if (startDate) {
-        timePendingQuery = timePendingQuery.gte('created_at', new Date(startDate).toISOString());
-        plannerPendingQuery = plannerPendingQuery.gte('created_at', new Date(startDate).toISOString());
-      }
-      if (endDate) {
-        timePendingQuery = timePendingQuery.lte('created_at', new Date(endDate + 'T23:59:59').toISOString());
-        plannerPendingQuery = plannerPendingQuery.lte('created_at', new Date(endDate + 'T23:59:59').toISOString());
-      }
-
-      const [timeRes, plannerRes] = await Promise.all([timePendingQuery, plannerPendingQuery]);
-
-      if (timeRes.error) throw timeRes.error;
-      if (plannerRes.error) throw plannerRes.error;
-
-      // 4) mapa employee_id -> centros del empleado
-      const employeeCentersMap = (employeesData as any[]).reduce((acc, emp) => {
-        acc[emp.id] = Array.isArray(emp.work_centers) ? emp.work_centers : [];
-        return acc;
-      }, {} as Record<string, string[]>);
-
-      // 5) acumular pendientes por centro
-      const pendingByWorkCenter: { [key: string]: number } = {};
-
-      const pendingEmployeeIds = [
-        ...(timeRes.data || []).map((r: any) => r.employee_id),
-        ...(plannerRes.data || []).map((r: any) => r.employee_id),
-      ];
-
-      pendingEmployeeIds.forEach((empId) => {
-        const centers = employeeCentersMap[empId] || [];
-        centers.forEach((c) => {
-          pendingByWorkCenter[c] = (pendingByWorkCenter[c] || 0) + 1;
-        });
-      });
-
-      setPendingRequestsByWorkCenter(pendingByWorkCenter);
-    } catch (err) {
-      console.error('Error fetching pending counts by center:', err);
-      // no petamos UI por esto, pero podrías setError si quieres
-    }
-  };
-
   const fetchRequests = async () => {
     try {
       if (!selectedWorkCenter) return;
-
+      
       setLoading(true);
       setError(null);
 
@@ -208,18 +94,18 @@ function SupervisorRequests() {
         .contains('work_centers', [selectedWorkCenter]);
 
       if (employeesError) throw employeesError;
-
       if (!employeesData || employeesData.length === 0) {
         setRequests([]);
         setPendingRequestsCount(0);
+        setPendingRequestsByWorkCenter({});
         return;
       }
 
-      const employeeIds = employeesData.map((emp: any) => emp.id);
-      const employeeNamesMap = employeesData.reduce((acc: any, emp: any) => {
+      const employeeIds = employeesData.map(emp => emp.id);
+      const employeeNamesMap = employeesData.reduce((acc, emp) => {
         acc[emp.id] = { name: emp.fiscal_name, email: emp.email, work_centers: emp.work_centers };
         return acc;
-      }, {} as Record<string, { name: string; email: string; work_centers: string[] }>);
+      }, {} as Record<string, { name: string, email: string, work_centers: string[] }>);
 
       // Get time requests for these employees
       let timeRequestsQuery = supabase
@@ -247,14 +133,17 @@ function SupervisorRequests() {
         plannerRequestsQuery = plannerRequestsQuery.lte('created_at', new Date(endDate + 'T23:59:59').toISOString());
       }
 
-      const [timeRequestsResponse, plannerRequestsResponse] = await Promise.all([timeRequestsQuery, plannerRequestsQuery]);
+      const [timeRequestsResponse, plannerRequestsResponse] = await Promise.all([
+        timeRequestsQuery,
+        plannerRequestsQuery
+      ]);
 
       if (timeRequestsResponse.error) throw timeRequestsResponse.error;
       if (plannerRequestsResponse.error) throw plannerRequestsResponse.error;
 
       // Format requests to match the expected structure
-      const allRequests: Request[] = [
-        ...(timeRequestsResponse.data || []).map((req: any) => ({
+      const allRequests = [
+        ...(timeRequestsResponse.data || []).map(req => ({
           request_id: req.id,
           request_type: 'time' as const,
           request_status: req.status,
@@ -267,10 +156,10 @@ function SupervisorRequests() {
           details: {
             datetime: req.datetime,
             entry_type: req.entry_type,
-            comment: req.comment,
-          },
+            comment: req.comment
+          }
         })),
-        ...(plannerRequestsResponse.data || []).map((req: any) => ({
+        ...(plannerRequestsResponse.data || []).map(req => ({
           request_id: req.id,
           request_type: 'planner' as const,
           request_status: req.status,
@@ -284,21 +173,33 @@ function SupervisorRequests() {
             planner_type: req.planner_type,
             start_date: req.start_date,
             end_date: req.end_date,
-            comment: req.comment,
-          },
-        })),
+            comment: req.comment
+          }
+        }))
       ];
 
-      const filtered = allRequests.filter((req) => filter === 'all' || req.request_status === filter);
-      setRequests(filtered);
+      const requests = allRequests;
 
-      // ✅ Contador de pendientes SOLO del centro seleccionado (correcto para la vista)
-      const pendingCount = allRequests.filter((req) => req.request_status === 'pending').length;
+      const filteredRequests = (requests || []).filter(req => 
+        filter === 'all' || req.request_status === filter
+      );
+
+      setRequests(filteredRequests);
+      
+      // Update pending counts
+      const pendingCount = requests.filter(req => req.request_status === 'pending').length;
       setPendingRequestsCount(pendingCount);
 
-      // ✅ NO sobreescribimos pendingRequestsByWorkCenter aquí
-      // porque ese mapa debe ser GLOBAL (todos los centros).
-      // Eso lo gestiona fetchPendingCountsByCenter().
+      // Update pending counts by work center
+      const pendingByWorkCenter: { [key: string]: number } = {};
+      requests.forEach(req => {
+        if (req.request_status === 'pending' && req.work_centers && req.work_centers.length > 0) {
+          req.work_centers.forEach(center => {
+            pendingByWorkCenter[center] = (pendingByWorkCenter[center] || 0) + 1;
+          });
+        }
+      });
+      setPendingRequestsByWorkCenter(pendingByWorkCenter);
 
     } catch (error) {
       console.error('Error fetching requests:', error);
@@ -311,22 +212,23 @@ function SupervisorRequests() {
   const handleUpdateStatus = async (requestId: string, type: string, newStatus: 'approved' | 'rejected') => {
     try {
       const table = type === 'time' ? 'time_requests' : 'planner_requests';
-
-      const { error } = await supabase.from(table).update({ status: newStatus }).eq('id', requestId);
+      
+      const { error } = await supabase
+        .from(table)
+        .update({ status: newStatus })
+        .eq('id', requestId);
 
       if (error) throw error;
 
-      setRequests((prev) =>
-        prev.map((req) => (req.request_id === requestId ? { ...req, request_status: newStatus } : req))
-      );
+      setRequests(prev => prev.map(req => 
+        req.request_id === requestId ? { ...req, request_status: newStatus } : req
+      ));
 
       if (newStatus !== 'pending') {
-        setPendingRequestsCount((prev) => Math.max(0, prev - 1));
+        setPendingRequestsCount(prev => prev - 1);
       }
 
-      // refrescar lista + refrescar contadores globales para badges por centro
       await fetchRequests();
-      await fetchPendingCountsByCenter();
     } catch (error) {
       console.error('Error updating request:', error);
       setError('Error al actualizar la solicitud');
@@ -335,27 +237,24 @@ function SupervisorRequests() {
 
   const handleExportExcel = () => {
     try {
-      const dataToExport = requests.map((request) => ({
-        Nombre: request.employee_name,
-        Email: request.employee_email,
+      const dataToExport = requests.map(request => ({
+        'Nombre': request.employee_name,
+        'Email': request.employee_email,
         'Centros de Trabajo': request.work_centers?.join(', ') || '',
-        Delegación: request.delegation || '',
+        'Delegación': request.delegation || '',
         'Tipo de Solicitud': getRequestTypeText(request.request_type),
-        Estado: getStatusText(request.request_status),
+        'Estado': getStatusText(request.request_status),
         'Fecha de Solicitud': new Date(request.created_at).toLocaleString(),
-        Detalles:
-          request.request_type === 'time'
-            ? `${new Date(request.details.datetime).toLocaleString()} - ${getEntryTypeText(request.details.entry_type)}`
-            : `${request.details.planner_type} (${new Date(request.details.start_date).toLocaleDateString()} - ${new Date(
-                request.details.end_date
-              ).toLocaleDateString()})`,
-        Comentario: request.details.comment || '',
+        'Detalles': request.request_type === 'time' 
+          ? `${new Date(request.details.datetime).toLocaleString()} - ${getEntryTypeText(request.details.entry_type)}`
+          : `${request.details.planner_type} (${new Date(request.details.start_date).toLocaleDateString()} - ${new Date(request.details.end_date).toLocaleDateString()})`,
+        'Comentario': request.details.comment || ''
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(dataToExport);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Solicitudes');
-
+      
       const fileName = `Solicitudes_${new Date().toISOString().split('T')[0]}.xlsx`;
       XLSX.writeFile(workbook, fileName);
     } catch (error) {
@@ -366,51 +265,36 @@ function SupervisorRequests() {
 
   const getRequestTypeText = (type: string) => {
     switch (type) {
-      case 'time':
-        return 'Fichaje';
-      case 'planner':
-        return 'Planificador';
-      default:
-        return type;
+      case 'time': return 'Fichaje';
+      case 'planner': return 'Planificador';
+      default: return type;
     }
   };
 
   const getStatusBadgeClasses = (status: string) => {
     switch (status) {
-      case 'approved':
-        return 'bg-green-100 text-green-800';
-      case 'rejected':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-yellow-100 text-yellow-800';
+      case 'approved': return 'bg-green-100 text-green-800';
+      case 'rejected': return 'bg-red-100 text-red-800';
+      default: return 'bg-yellow-100 text-yellow-800';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'approved':
-        return 'Aprobada';
-      case 'rejected':
-        return 'Rechazada';
-      case 'pending':
-        return 'Pendiente';
-      default:
-        return status;
+      case 'approved': return 'Aprobada';
+      case 'rejected': return 'Rechazada';
+      case 'pending': return 'Pendiente';
+      default: return status;
     }
   };
 
   const getEntryTypeText = (type: string) => {
     switch (type) {
-      case 'clock_in':
-        return 'Entrada';
-      case 'break_start':
-        return 'Inicio Pausa';
-      case 'break_end':
-        return 'Fin Pausa';
-      case 'clock_out':
-        return 'Salida';
-      default:
-        return type;
+      case 'clock_in': return 'Entrada';
+      case 'break_start': return 'Inicio Pausa';
+      case 'break_end': return 'Fin Pausa';
+      case 'clock_out': return 'Salida';
+      default: return type;
     }
   };
 
@@ -446,10 +330,9 @@ function SupervisorRequests() {
     }
   };
 
-  const filteredRequests = requests.filter(
-    (request) =>
-      request.employee_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.employee_email.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredRequests = requests.filter(request => 
+    request.employee_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    request.employee_email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   if (!selectedWorkCenter && workCenters.length > 0) {
@@ -458,22 +341,15 @@ function SupervisorRequests() {
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-xl font-semibold mb-4">Seleccionar Centro de Trabajo</h2>
-
-            {error && (
-              <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
-                {error}
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {workCenters.map((center) => (
+              {workCenters.map(center => (
                 <button
                   key={center}
                   onClick={() => setSelectedWorkCenter(center)}
                   className="p-4 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors relative"
                 >
                   {center}
-                  {(pendingRequestsByWorkCenter[center] || 0) > 0 && (
+                  {pendingRequestsByWorkCenter[center] > 0 && (
                     <span className="absolute top-0 right-0 bg-red-500 text-white rounded-full px-2 py-1 text-xs">
                       {pendingRequestsByWorkCenter[center]}
                     </span>
@@ -503,7 +379,9 @@ function SupervisorRequests() {
                   </span>
                 )}
               </h1>
-              <p className="text-gray-600">Centro de Trabajo: {selectedWorkCenter}</p>
+              <p className="text-gray-600">
+                Centro de Trabajo: {selectedWorkCenter}
+              </p>
             </div>
             <div className="space-y-2">
               <button
@@ -521,16 +399,19 @@ function SupervisorRequests() {
             <button
               onClick={() => setFilter('all')}
               className={`px-4 py-2 rounded-lg ${
-                filter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                filter === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               Todas
             </button>
-
             <button
               onClick={() => setFilter('pending')}
               className={`px-4 py-2 rounded-lg ${
-                filter === 'pending' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                filter === 'pending'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               Pendientes
@@ -540,20 +421,22 @@ function SupervisorRequests() {
                 </span>
               )}
             </button>
-
             <button
               onClick={() => setFilter('approved')}
               className={`px-4 py-2 rounded-lg ${
-                filter === 'approved' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                filter === 'approved'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               Aprobadas
             </button>
-
             <button
               onClick={() => setFilter('rejected')}
               className={`px-4 py-2 rounded-lg ${
-                filter === 'rejected' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                filter === 'rejected'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               Rechazadas
@@ -571,7 +454,9 @@ function SupervisorRequests() {
 
             <div className="flex gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fecha Inicio</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fecha Inicio
+                </label>
                 <input
                   type="date"
                   value={startDate}
@@ -580,7 +465,9 @@ function SupervisorRequests() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fecha Fin</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fecha Fin
+                </label>
                 <input
                   type="date"
                   value={endDate}
@@ -604,7 +491,9 @@ function SupervisorRequests() {
         </div>
 
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">{error}</div>
+          <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
+            {error}
+          </div>
         )}
 
         {loading ? (
@@ -640,40 +529,38 @@ function SupervisorRequests() {
                   </th>
                 </tr>
               </thead>
-
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredRequests.map((request) => (
                   <tr key={request.request_id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{request.employee_name}</div>
-                      <div className="text-sm text-gray-500">{request.employee_email}</div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {request.employee_name}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {request.employee_email}
+                      </div>
                     </td>
-
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">{getRequestTypeText(request.request_type)}</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {getRequestTypeText(request.request_type)}
+                      </span>
                     </td>
-
                     <td className="px-6 py-4">
                       {renderRequestDetails(request)}
                       <p className="text-sm text-gray-500 mt-1">
                         <strong>Comentario:</strong> {request.details.comment || 'Ninguno'}
                       </p>
                     </td>
-
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClasses(
-                          request.request_status
-                        )}`}
-                      >
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        getStatusBadgeClasses(request.request_status)
+                      }`}>
                         {getStatusText(request.request_status)}
                       </span>
                     </td>
-
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(request.created_at).toLocaleString()}
                     </td>
-
                     <td className="px-6 py-4 whitespace-nowrap">
                       {request.request_status === 'pending' && (
                         <div className="flex gap-2">

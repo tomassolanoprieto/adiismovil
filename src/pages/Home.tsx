@@ -328,7 +328,11 @@ export default function Home() {
               className="h-28 md:h-36 lg:h-44 object-contain drop-shadow-md"
             />
           </div>
-          
+
+          <h2 className="text-xl text-gray-600 mb-12">
+            Gestión inteligente del tiempo de trabajo para empresas con múltiples centros y equipos.
+          </h2>
+
           <div className="max-w-2xl mx-auto mb-8">
             <div className="space-y-4">
               <button
