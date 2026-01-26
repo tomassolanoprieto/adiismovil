@@ -16,6 +16,11 @@ import CalendarSignatureAlert from '../components/CalendarSignatureAlert';
 import { generateAllAlarms } from '../lib/alarmCalculations';
 import { sendAlarmEmail } from '../lib/emailService';
 
+// ✅ FIX: faltaba MobileHeader
+import MobileHeader from '../components/MobileHeader';
+// ✅ FIX: el nav que tienes importado se llama MobileNav
+import MobileNav from '../components/MobileNav';
+
 type TimeEntryType = 'turno' | 'coordinacion' | 'formacion' | 'sustitucion' | 'otros';
 
 const getApproximateLocation = async (latitude, longitude) => {
