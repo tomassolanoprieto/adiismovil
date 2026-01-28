@@ -289,6 +289,13 @@ export default function SupervisorAlerts() {
           </p>
         </div>
 
+        <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded">
+  <p className="text-sm text-yellow-900 leading-relaxed">
+    <strong className="font-semibold">Importante:</strong> Asegurate siempre de que antes de aceptar la notificacion,
+    haber hechos todos los pasos correspondientes y necesarios con el/la trabajador/a para que no siga la alerta.
+  </p>
+</div>
+
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">
           <button
             onClick={() => setSelectedType('all')}
