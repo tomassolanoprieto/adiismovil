@@ -80,7 +80,6 @@ export default function EmployeeRequests() {
 
       if (timeError) throw timeError;
       setTimeRequests(timeData || []);
-
     } catch (err) {
       console.error('Error fetching requests:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar las solicitudes');
@@ -112,14 +111,14 @@ export default function EmployeeRequests() {
             navigator.geolocation.getCurrentPosition(resolve, reject, {
               enableHighAccuracy: true,
               timeout: 10000,
-              maximumAge: 0
+              maximumAge: 0,
             });
           });
 
           locationData = {
             location_latitude: position.coords.latitude,
             location_longitude: position.coords.longitude,
-            location_accuracy: position.coords.accuracy
+            location_accuracy: position.coords.accuracy,
           };
         } catch (geoError) {
           console.warn('No se pudo obtener la ubicación GPS:', geoError);
@@ -140,18 +139,19 @@ export default function EmployeeRequests() {
         maxTouchPoints: navigator.maxTouchPoints,
         hardwareConcurrency: navigator.hardwareConcurrency,
         deviceMemory: (navigator as any).deviceMemory,
-        connection: (navigator as any).connection ? {
-          effectiveType: (navigator as any).connection.effectiveType,
-          downlink: (navigator as any).connection.downlink,
-          rtt: (navigator as any).connection.rtt
-        } : null,
+        connection: (navigator as any).connection
+          ? {
+              effectiveType: (navigator as any).connection.effectiveType,
+              downlink: (navigator as any).connection.downlink,
+              rtt: (navigator as any).connection.rtt,
+            }
+          : null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
 
-      const { error: insertError } = await supabase
-        .from('time_requests')
-        .insert([{
+      const { error: insertError } = await supabase.from('time_requests').insert([
+        {
           employee_id: employeeId,
           datetime: new Date(datetime).toISOString(),
           entry_type: entryType,
@@ -159,8 +159,9 @@ export default function EmployeeRequests() {
           comment,
           status: 'pending',
           ...locationData,
-          device_info: deviceInfo
-        }]);
+          device_info: deviceInfo,
+        },
+      ]);
 
       if (insertError) throw insertError;
 
@@ -168,7 +169,6 @@ export default function EmployeeRequests() {
       setComment('');
       setEntryType('clock_in');
       await fetchRequests();
-
     } catch (err) {
       console.error('Error submitting time request:', err);
       setError(err instanceof Error ? err.message : 'Error al enviar la solicitud');
@@ -179,10 +179,14 @@ export default function EmployeeRequests() {
 
   const getEntryTypeText = (type: TimeEntryType) => {
     switch (type) {
-      case 'clock_in': return 'Entrada';
-      case 'break_start': return 'Pausa';
-      case 'break_end': return 'Volver';
-      case 'clock_out': return 'Salida';
+      case 'clock_in':
+        return 'Entrada';
+      case 'break_start':
+        return 'Pausa';
+      case 'break_end':
+        return 'Volver';
+      case 'clock_out':
+        return 'Salida';
     }
   };
 
@@ -212,153 +216,148 @@ export default function EmployeeRequests() {
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="bg-white rounded-xl shadow-lg p-6">
         <h2 className="text-2xl font-bold mb-6">Solicitudes</h2>
-        
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
-            {error}
-          </div>
-        )}
-        
+
+        {error && <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">{error}</div>}
+
         <div className="mb-8">
           <h3 className="text-xl font-semibold mb-6">Incidencia de Fichaje</h3>
-            <form onSubmit={handleTimeSubmit} className="space-y-6 max-w-2xl">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Fecha y hora inicio
-                </label>
-                <input
-                  type="datetime-local"
-                  value={datetime}
-                  onChange={(e) => setDatetime(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Centro de trabajo
-                </label>
-                <select
-                  value={selectedWorkCenter}
-                  onChange={(e) => setSelectedWorkCenter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  {workCenters.map((center) => (
-                    <option key={center} value={center}>
-                      {center}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          {/* ✅ NUEVO: texto informativo arriba del formulario */}
+          <div className="mb-4 max-w-2xl rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            <p className="text-sm">
+              Asegúrate de que el campo <span className="font-semibold">"Fecha y hora inicio"</span> sea la fecha y hora
+              del fichaje que quieres solicitar, y no la fecha y hora en la que estás enviando esta solicitud.
+            </p>
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tipo de fichaje
-                </label>
-                <select
-                  value={entryType}
-                  onChange={(e) => setEntryType(e.target.value as TimeEntryType)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  <option value="clock_in">Entrada</option>
-                  <option value="break_start">Pausa</option>
-                  <option value="break_end">Volver</option>
-                  <option value="clock_out">Salida</option>
-                </select>
-              </div>
+          <form onSubmit={handleTimeSubmit} className="space-y-6 max-w-2xl">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha y hora inicio</label>
+              <input
+                type="datetime-local"
+                value={datetime}
+                onChange={(e) => setDatetime(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Comentario
-                </label>
-                <textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  rows={4}
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Centro de trabajo</label>
+              <select
+                value={selectedWorkCenter}
+                onChange={(e) => setSelectedWorkCenter(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
               >
-                {loading ? 'Enviando...' : 'Enviar Solicitud'}
-              </button>
-            </form>
+                {workCenters.map((center) => (
+                  <option key={center} value={center}>
+                    {center}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de fichaje</label>
+              <select
+                value={entryType}
+                onChange={(e) => setEntryType(e.target.value as TimeEntryType)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="clock_in">Entrada</option>
+                <option value="break_start">Pausa</option>
+                <option value="break_end">Volver</option>
+                <option value="clock_out">Salida</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Comentario</label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                rows={4}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Enviando...' : 'Enviar Solicitud'}
+            </button>
+          </form>
         </div>
 
         <div>
           <h3 className="text-xl font-semibold mb-6">Historial de Incidencias</h3>
 
           <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead>
+                <tr>
+                  <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Fecha y Hora
+                  </th>
+                  <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tipo
+                  </th>
+                  <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Centro de trabajo
+                  </th>
+                  <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Estado
+                  </th>
+                  <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Comentario
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loading ? (
                   <tr>
-                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Fecha y Hora
-                    </th>
-                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tipo
-                    </th>
-                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Centro de trabajo
-                    </th>
-                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Estado
-                    </th>
-                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Comentario
-                    </th>
+                    <td colSpan={5} className="px-6 py-4 text-center">
+                      Cargando solicitudes...
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {loading ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-4 text-center">
-                        Cargando solicitudes...
+                ) : timeRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-4 text-center">
+                      No hay solicitudes para mostrar
+                    </td>
+                  </tr>
+                ) : (
+                  timeRequests.map((request) => (
+                    <tr key={request.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {new Date(request.datetime).toLocaleString('es-ES', {
+                          timeZone: 'Europe/Madrid',
+                          hour12: false,
+                        })}
                       </td>
-                    </tr>
-                  ) : timeRequests.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-4 text-center">
-                        No hay solicitudes para mostrar
+                      <td className="px-6 py-4 whitespace-nowrap">{getEntryTypeText(request.entry_type)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">{request.work_center || 'N/A'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeClasses(
+                            request.status
+                          )}`}
+                        >
+                          {getStatusText(request.status)}
+                        </span>
                       </td>
+                      <td className="px-6 py-4">{request.comment}</td>
                     </tr>
-                  ) : (
-                    timeRequests.map((request) => (
-                      <tr key={request.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {new Date(request.datetime).toLocaleString('es-ES', {
-                            timeZone: 'Europe/Madrid',
-                            hour12: false,
-                          })}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {getEntryTypeText(request.entry_type)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {request.work_center || 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeClasses(request.status)}`}>
-                            {getStatusText(request.status)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {request.comment}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
