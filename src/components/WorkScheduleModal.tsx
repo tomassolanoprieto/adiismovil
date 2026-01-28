@@ -1,5 +1,4 @@
-// WorkScheduleModal.tsx 
-
+// WorkScheduleModal.tsx (PARTE 1/2)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
@@ -21,6 +20,7 @@ interface Employee {
   total_hours?: number;
   total_annual_hours?: number;
   work_centers: string[];
+  hours_worked_before_year?: number;
 }
 
 interface DaySchedule {
@@ -37,6 +37,13 @@ interface WeekSchedule {
   saturday: DaySchedule;
   sunday: DaySchedule;
   weekStart?: string;
+}
+
+interface WorkScheduleTemplate {
+  id: string;
+  name: string;
+  profile_type: string;
+  schedule: WeekSchedule;
 }
 
 interface Holiday {
@@ -61,12 +68,12 @@ interface VacationRow {
 interface WorkScheduleModalProps {
   employee: Employee;
   onClose: () => void;
-  onSave: (scheduleData: string, employeeId: string) => void; // (se mantiene por compatibilidad, pero "Guardar" YA NO redirige)
+  onSave: (scheduleData: string, employeeId: string) => void;
   initialSchedule?: string;
 }
 
 const emptyDaySchedule: DaySchedule = {
-  morning: { start: '', end: '' }, // ✅ default --:-- (vacío)
+  morning: { start: '', end: '' },
   afternoon: { start: '', end: '', enabled: false }
 };
 
@@ -81,13 +88,13 @@ const defaultWeekSchedule: WeekSchedule = {
 };
 
 // -------------------------
-// Helpers de fechas (LOCAL) ✅ (evita el bug de desplazamiento por toISOString/UTC)
+// Helpers de fechas (LOCAL)
 // -------------------------
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const dateToYMDLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const ymdToDateLocal = (ymd: string) => {
   const [y, m, da] = ymd.split('-').map(Number);
-  return new Date(y, (m || 1) - 1, da || 1, 12, 0, 0, 0); // mediodía para evitar DST edge cases
+  return new Date(y, (m || 1) - 1, da || 1, 12, 0, 0, 0);
 };
 
 const getDayKeyFromIndex = (i: number): keyof WeekSchedule => {
@@ -140,7 +147,7 @@ const calculateWeekHoursForCalendarYear = (weekStart: string, weekSchedule: Week
     })();
 
     const d = ymdToDateLocal(ymd);
-    if (d.getFullYear() !== year) return; // ✅ SOLO días del año real
+    if (d.getFullYear() !== year) return;
 
     total += calcDayHours((weekSchedule as any)[dayKey]);
   });
@@ -156,23 +163,31 @@ export default function WorkScheduleModal({ employee, onClose, onSave }: WorkSch
   const [selectedWeek, setSelectedWeek] = useState<string>(getCurrentWeekStart());
   const [schedules, setSchedules] = useState<Record<string, WeekSchedule>>({});
 
-  // ✅ Año “activo” según la semana seleccionada (discriminación por año)
-// Año ISO de la semana: el año del jueves de esa semana (lunes + 3 días)
-const getWeekYearISO = (weekStartYmd: string) => {
-  const monday = ymdToDateLocal(weekStartYmd);
-  const thursday = new Date(monday);
-  thursday.setDate(monday.getDate() + 3);
-  return thursday.getFullYear();
-};
+  // Plantillas
+  const [templates, setTemplates] = useState<WorkScheduleTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
 
-  // ✅ Año “activo” según la semana seleccionada (ISO week-year)
-const selectedYear = useMemo(() => {
-  if (!selectedWeek) return new Date().getFullYear();
-  return getWeekYearISO(selectedWeek);
-}, [selectedWeek]);
+  // ✅ Año ISO de la semana: el año del jueves de esa semana (lunes + 3 días)
+  const getWeekYearISO = (weekStartYmd: string) => {
+    const monday = ymdToDateLocal(weekStartYmd);
+    const thursday = new Date(monday);
+    thursday.setDate(monday.getDate() + 3);
+    return thursday.getFullYear();
+  };
+
+  const selectedYear = useMemo(() => {
+    if (!selectedWeek) return new Date().getFullYear();
+    return getWeekYearISO(selectedWeek);
+  }, [selectedWeek]);
 
   const [totalAssignedHours, setTotalAssignedHours] = useState<number>(0);
-  const [remainingHours, setRemainingHours] = useState<number>((employee.total_annual_hours || employee.total_hours || 0)); // ✅ puede ser negativo
+  const [remainingHours, setRemainingHours] = useState<number>((employee.total_annual_hours || employee.total_hours || 0));
+
+ // Nuevo ingreso iniciado año
+const [isMidYearHire, setIsMidYearHire] = useState<boolean>(false);
+const [hoursWorkedBeforeYear, setHoursWorkedBeforeYear] = useState<number>(0);
 
   // Festivos
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -182,16 +197,15 @@ const selectedYear = useMemo(() => {
   const [showExcludeHolidayModal, setShowExcludeHolidayModal] = useState(false);
   const [pendingHolidayAction, setPendingHolidayAction] = useState<{ day: keyof WeekSchedule; holidayId: string } | null>(null);
 
-  // Vacaciones (nuevo)
+  // Vacaciones
   const [vacations, setVacations] = useState<VacationRow[]>([]);
-  const [vacationDaysSet, setVacationDaysSet] = useState<Set<string>>(new Set()); // YYYY-MM-DD
+  const [vacationDaysSet, setVacationDaysSet] = useState<Set<string>>(new Set());
   const [showVacationsPopup, setShowVacationsPopup] = useState(false);
   const [showVacationCreate, setShowVacationCreate] = useState(false);
   const [vacationStartDate, setVacationStartDate] = useState('');
   const [vacationEndDate, setVacationEndDate] = useState('');
   const [vacationNotes, setVacationNotes] = useState('');
 
-  // Warning (vacaciones sobre días laborales) + bloqueo (vacaciones sobre festivo)
   const [showVacationWorkdaysWarning, setShowVacationWorkdaysWarning] = useState(false);
   const [vacationWorkDaysDetected, setVacationWorkDaysDetected] = useState<string[]>([]);
   const pendingVacationInsertRef = useRef<any>(null);
@@ -202,19 +216,17 @@ const selectedYear = useMemo(() => {
   // Guardado / Salir
   const [loading, setLoading] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
-
-  const [showLeaveModal, setShowLeaveModal] = useState(false); // Guardar y salir con horas descuadradas
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
 
   // Aplicar a todo el año / rango
   const [showConfirmationAllYear, setShowConfirmationAllYear] = useState(false);
-
   const [showDateRangeModal, setShowDateRangeModal] = useState(false);
   const [rangeStartDate, setRangeStartDate] = useState('');
   const [rangeEndDate, setRangeEndDate] = useState('');
 
-  // Conflictos al aplicar (festivo/vacación) uno por uno
+  // Conflictos aplicar
   type ApplyConflict = {
-    date: string; // YYYY-MM-DD
+    date: string;
     type: 'holiday' | 'vacation';
     label: string;
   };
@@ -222,15 +234,261 @@ const selectedYear = useMemo(() => {
   const [applyConflicts, setApplyConflicts] = useState<ApplyConflict[]>([]);
   const [showApplyConflictModal, setShowApplyConflictModal] = useState(false);
 
+  // Conflictos: estado
+  const [resolvedApplyDates, setResolvedApplyDates] = useState<Set<string>>(new Set());
+  const [skipApplyDates, setSkipApplyDates] = useState<Set<string>>(new Set());
+
+  // ✅ Plantillas: condición estricta “horas pendientes == 0”
+  const EPS = 0.000001;
+  const canSaveTemplate = Math.abs(remainingHours) < EPS;
+
   // -------------------------
-  // Cargar datos iniciales
+  // Utilidades de semana/día
+  // -------------------------
+  function getCurrentWeekStart(): string {
+    const now = new Date();
+    const dow = now.getDay();
+    const monday = new Date(now);
+    const diff = dow === 0 ? -6 : 1 - dow;
+    monday.setDate(now.getDate() + diff);
+    return dateToYMDLocal(monday);
+  }
+
+  const getDateForSelectedWeekDay = (weekStartYmd: string, day: keyof WeekSchedule): string => {
+    const base = ymdToDateLocal(weekStartYmd);
+    const idx = dayKeyIndex[day];
+    const d = new Date(base);
+    d.setDate(base.getDate() + idx);
+    return dateToYMDLocal(d);
+  };
+
+  const dayNamesES: Record<keyof WeekSchedule, string> = {
+    monday: 'Lunes',
+    tuesday: 'Martes',
+    wednesday: 'Miércoles',
+    thursday: 'Jueves',
+    friday: 'Viernes',
+    saturday: 'Sábado',
+    sunday: 'Domingo',
+    weekStart: ''
+  } as any;
+
+  const formatDateLong = (ymd: string) => {
+    const d = ymdToDateLocal(ymd);
+    return d.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
+  // -------------------------
+  // Templates: fetch + apply + save  ✅ (EN SCOPE DEL COMPONENTE)
+  // -------------------------
+  const fetchTemplates = async () => {
+    const { data, error } = await supabase
+      .from('work_schedule_templates')
+      .select('id,name,profile_type,schedule_json,created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    setTemplates(
+      (data || []).map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        profile_type: t.profile_type,
+        schedule: t.schedule_json
+      }))
+    );
+  };
+
+  const applyTemplateToEmployee = async (templateId: string) => {
+    const tpl = templates.find((t) => t.id === templateId);
+    if (!tpl) return;
+
+    try {
+      setLoading(true);
+
+      const templateData = tpl.schedule;
+
+      // Verificar si es una plantilla nueva (con year_schedules) o antigua (solo schedule)
+      if (templateData.year_schedules) {
+        // Plantilla nueva: tiene todas las semanas del año configuradas
+        const yearSchedules = templateData.year_schedules;
+        const excludedHols = new Set(templateData.excluded_holidays || []);
+        const hoursWorked = templateData.hours_worked_before_year || 0;
+
+        // Aplicar todos los schedules del año
+        setSchedules(yearSchedules);
+        setExcludedHolidays(excludedHols);
+        setHoursWorkedBeforeYear(hoursWorked);
+        if (hoursWorked > 0) {
+          setIsMidYearHire(true);
+        }
+
+        // Actualizar la semana actual en el editor
+        if (yearSchedules[selectedWeek]) {
+          setSchedule(yearSchedules[selectedWeek]);
+        }
+
+        // Guardar todos los schedules en la base de datos
+        const allDates: string[] = [];
+        const rows: any[] = [];
+
+        Object.entries(yearSchedules).forEach(([weekStart, weekSchedule]: [string, any]) => {
+          ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].forEach((dayKey, idx) => {
+            const ds = weekSchedule[dayKey];
+            if (!ds) return;
+
+            const weekDate = ymdToDateLocal(weekStart);
+            const dayDate = new Date(weekDate);
+            dayDate.setDate(weekDate.getDate() + idx);
+            const ymd = dateToYMDLocal(dayDate);
+
+            allDates.push(ymd);
+
+            rows.push({
+              employee_id: employee.id,
+              date: ymd,
+              morning_start: ds.morning.start || null,
+              morning_end: ds.morning.end || null,
+              afternoon_start: ds.afternoon.enabled && ds.afternoon.start ? ds.afternoon.start : null,
+              afternoon_end: ds.afternoon.enabled && ds.afternoon.end ? ds.afternoon.end : null,
+              enabled: !!ds.afternoon.enabled
+            });
+          });
+        });
+
+        // Eliminar horarios existentes y insertar los nuevos
+        if (allDates.length > 0) {
+          await supabase.from('employee_schedules').delete().eq('employee_id', employee.id).in('date', allDates);
+
+          const batchSize = 200;
+          for (let i = 0; i < rows.length; i += batchSize) {
+            const batch = rows.slice(i, i + batchSize);
+            const { error } = await supabase.from('employee_schedules').insert(batch);
+            if (error) throw error;
+          }
+        }
+
+        // Guardar exclusiones de festivos
+        await supabase.from('employee_holiday_exclusions').delete().eq('employee_id', employee.id);
+        if (excludedHols.size > 0) {
+          const exclusionsToInsert = Array.from(excludedHols).map(holidayId => ({
+            employee_id: employee.id,
+            holiday_id: holidayId
+          }));
+          await supabase.from('employee_holiday_exclusions').insert(exclusionsToInsert);
+        }
+
+        // Guardar hours_worked_before_year
+        await supabase
+          .from('employee_profiles')
+          .update({ hours_worked_before_year: hoursWorked })
+          .eq('id', employee.id);
+
+        setSaveToast(`✅ Plantilla aplicada (${templateData.total_hours?.toFixed(2) || 0}h)`);
+        setTimeout(() => setSaveToast(null), 2200);
+      } else {
+        // Plantilla antigua: solo tiene un horario semanal, aplicar a todo el año
+        const templateSchedule = JSON.parse(JSON.stringify(templateData));
+        setSchedule(templateSchedule);
+
+        const allDates = buildDatesForAllYear(selectedYear);
+
+        const conflicts: ApplyConflict[] = [];
+        allDates.forEach((d) => {
+          const holiday = holidays.find((h) => h.date === d && !excludedHolidays.has(h.id));
+          if (holiday) conflicts.push({ date: d, type: 'holiday', label: `Festivo: ${holiday.name}` });
+          if (vacationDaysSet.has(d)) conflicts.push({ date: d, type: 'vacation', label: `Vacaciones` });
+        });
+
+        setApplyConflicts(conflicts);
+        setApplyQueue({ mode: 'year', dates: allDates, index: 0 });
+
+        if (conflicts.length > 0) {
+          setShowApplyConflictModal(true);
+        } else {
+          await applyScheduleToSpecificDates(allDates);
+          setSaveToast('✅ Plantilla aplicada a todo el año');
+          setTimeout(() => setSaveToast(null), 2200);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error al aplicar plantilla');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openTemplateModal = () => {
+    if (!canSaveTemplate) {
+      setSaveToast('❌ No puedes guardar plantilla: las horas pendientes deben estar en 0');
+      setTimeout(() => setSaveToast(null), 2600);
+      return;
+    }
+    setNewTemplateName('');
+    setShowTemplateModal(true);
+  };
+
+  const saveAsTemplate = async () => {
+    // ✅ doble seguridad (aunque el modal no debería abrirse)
+    if (!canSaveTemplate) {
+      setSaveToast('❌ No puedes guardar plantilla: las horas pendientes deben estar en 0');
+      setTimeout(() => setSaveToast(null), 2600);
+      return;
+    }
+
+    const name = newTemplateName.trim();
+    if (!name) {
+      setSaveToast('❌ Escribe un nombre para la plantilla');
+      setTimeout(() => setSaveToast(null), 2200);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Usuario no autenticado');
+
+      // Guardar TODO el año configurado, no solo la semana actual
+      const payload = {
+        name,
+        profile_type: 'default',
+        schedule_json: {
+          year_schedules: schedules,  // Todas las semanas del año
+          hours_worked_before_year: hoursWorkedBeforeYear,
+          excluded_holidays: Array.from(excludedHolidays),
+          total_hours: totalAssignedHours
+        },
+        created_by: user.id
+      };
+
+      const { error } = await supabase.from('work_schedule_templates').insert(payload);
+      if (error) throw error;
+
+      await fetchTemplates();
+
+      setShowTemplateModal(false);
+      setNewTemplateName('');
+      setSaveToast(`✅ Plantilla guardada (${totalAssignedHours.toFixed(2)}h)`);
+      setTimeout(() => setSaveToast(null), 2200);
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar la plantilla');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -------------------------
+  // Cargar datos iniciales (schedules, holidays, exclusions, vacations, templates)
   // -------------------------
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         setLoading(true);
 
-        // 1) Schedules (todas las fechas del empleado)
+        // 1) Schedules
         const { data: schedulesData, error: schedulesError } = await supabase
           .from('employee_schedules')
           .select('*')
@@ -246,9 +504,8 @@ const selectedYear = useMemo(() => {
 
           schedulesData.forEach((row: any) => {
             const date = ymdToDateLocal(row.date);
-            const dow = date.getDay(); // 0=Sun..6=Sat (local)
+            const dow = date.getDay();
             const monday = new Date(date);
-            // mover a lunes
             const diff = dow === 0 ? -6 : 1 - dow;
             monday.setDate(date.getDate() + diff);
             const mondayStr = dateToYMDLocal(monday);
@@ -262,10 +519,9 @@ const selectedYear = useMemo(() => {
 
             days.forEach((dayRow: any) => {
               const d = ymdToDateLocal(dayRow.date);
-              const jsDow = d.getDay(); // 0..6
+              const jsDow = d.getDay();
               const key = (['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][jsDow] as any) as keyof WeekSchedule;
 
-              // key puede ser sunday..saturday
               if (key && (weekSchedule as any)[key]) {
                 (weekSchedule as any)[key] = {
                   morning: { start: dayRow.morning_start || '', end: dayRow.morning_end || '' },
@@ -274,8 +530,6 @@ const selectedYear = useMemo(() => {
               }
             });
 
-            // ✅ Normaliza: nuestro WeekSchedule usa monday..sunday
-            // ya existe sunday también, perfecto (lo usamos)
             schedulesByWeek[weekStart] = weekSchedule;
           });
         }
@@ -306,8 +560,24 @@ const selectedYear = useMemo(() => {
         if (exclusionsError) throw exclusionsError;
         setExcludedHolidays(new Set(exclusionsData?.map((e: any) => e.holiday_id) || []));
 
-        // 4) Vacations (del año seleccionado)
+        // ✅ 0) Cargar hours_worked_before_year desde employee_profiles (fuente de verdad)
+const { data: profileData, error: profileError } = await supabase
+  .from('employee_profiles')
+  .select('hours_worked_before_year')
+  .eq('id', employee.id)
+  .single();
+
+if (profileError) throw profileError;
+
+const worked = profileData?.hours_worked_before_year ?? 0;
+setHoursWorkedBeforeYear(worked);
+setIsMidYearHire(worked > 0);
+
+        // 4) Vacations
         await fetchVacationsForYear(selectedYear);
+
+        // 5) Templates
+        await fetchTemplates();
       } catch (error) {
         console.error('Error loading initial data:', error);
       } finally {
@@ -342,7 +612,6 @@ const selectedYear = useMemo(() => {
       const rows = (data || []) as VacationRow[];
       setVacations(rows);
 
-      // construir set de días (para colorear en el modal)
       const days = new Set<string>();
       rows.forEach((v) => {
         const s = ymdToDateLocal(v.start_date);
@@ -360,64 +629,28 @@ const selectedYear = useMemo(() => {
   };
 
   // -------------------------
-  // Cálculo de horas (✅ por año y ✅ permite negativo)
+  // Cálculo de horas (por año, permite negativo)
   // -------------------------
-useEffect(() => {
-  let totalHoursYear = 0;
+  useEffect(() => {
+    let totalHoursYear = 0;
 
-  Object.entries(schedules).forEach(([weekStart, weekSchedule]) => {
-    // ✅ Solo consideramos semanas que “pertenecen” al año ISO seleccionado (para no iterar de más)
-    const yISO = getWeekYearISO(weekStart);
-    if (yISO !== selectedYear) return;
+    Object.entries(schedules).forEach(([weekStart, weekSchedule]) => {
+      const yISO = getWeekYearISO(weekStart);
+      if (yISO !== selectedYear) return;
 
-    // ✅ Pero contamos SOLO los días cuyo año calendario coincide con selectedYear
-    totalHoursYear += calculateWeekHoursForCalendarYear(weekStart, weekSchedule, selectedYear);
-  });
+      totalHoursYear += calculateWeekHoursForCalendarYear(weekStart, weekSchedule, selectedYear);
+    });
 
-  setTotalAssignedHours(totalHoursYear);
+    setTotalAssignedHours(totalHoursYear);
 
-  const totalAnnualHours = employee.total_annual_hours || employee.total_hours || 0;
-  setRemainingHours(totalAnnualHours - totalHoursYear);
-}, [schedules, employee.total_annual_hours, employee.total_hours, selectedYear]);
-
-  // -------------------------
-  // Utilidades de semana/día
-  // -------------------------
-  function getCurrentWeekStart(): string {
-    const now = new Date();
-    const dow = now.getDay(); // 0 Sun..6 Sat
-    const monday = new Date(now);
-    const diff = dow === 0 ? -6 : 1 - dow;
-    monday.setDate(now.getDate() + diff);
-    return dateToYMDLocal(monday);
-  }
-
-  const getDateForSelectedWeekDay = (weekStartYmd: string, day: keyof WeekSchedule): string => {
-    const base = ymdToDateLocal(weekStartYmd);
-    const idx = dayKeyIndex[day];
-    const d = new Date(base);
-    d.setDate(base.getDate() + idx);
-    return dateToYMDLocal(d);
-  };
-
-  const dayNamesES: Record<keyof WeekSchedule, string> = {
-    monday: 'Lunes',
-    tuesday: 'Martes',
-    wednesday: 'Miércoles',
-    thursday: 'Jueves',
-    friday: 'Viernes',
-    saturday: 'Sábado',
-    sunday: 'Domingo',
-    weekStart: ''
-  } as any;
-
-  const formatDateLong = (ymd: string) => {
-    const d = ymdToDateLocal(ymd);
-    return d.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
-  };
+    const totalAnnualHours = employee.total_annual_hours || employee.total_hours || 0;
+    // Si es ingreso a mitad de año, restamos las horas ya trabajadas del total anual
+    const effectiveAnnualHours = isMidYearHire ? totalAnnualHours - hoursWorkedBeforeYear : totalAnnualHours;
+    setRemainingHours(effectiveAnnualHours - totalHoursYear);
+  }, [schedules, employee.total_annual_hours, employee.total_hours, selectedYear, isMidYearHire, hoursWorkedBeforeYear]);
 
   // -------------------------
-  // Edición de día (mantiene warning festivo existente)
+  // Edición de día (mantiene warning festivo)
   // -------------------------
   const handleDayChange = (
     day: keyof WeekSchedule,
@@ -425,10 +658,6 @@ useEffect(() => {
     field: 'start' | 'end',
     value: string
   ) => {
-    // Si el día es VACACIONES, permitimos editar (por si quieren forzar horario) pero lo avisamos al aplicar masivo.
-    // Para edición manual: no bloqueamos.
-
-    // Check festivo (como antes)
     if (selectedWeek) {
       const dateString = getDateForSelectedWeekDay(selectedWeek, day);
       const holiday = holidays.find((h) => h.date === dateString && !excludedHolidays.has(h.id));
@@ -504,16 +733,14 @@ useEffect(() => {
   };
 
   // -------------------------
-  // Cambio de semana (YA NO fuerza lunes; solo muestra la semana del día elegido)
-  // ✅ pero la lógica interna sigue siendo "semanaStart = lunes de esa semana" para editar semana completa
+  // Cambio de semana
   // -------------------------
   const [showDateError, setShowDateError] = useState(false);
 
   const handleWeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = ymdToDateLocal(e.target.value);
-    const dow = picked.getDay(); // 0..6
+    const dow = picked.getDay();
 
-    // Ajustamos a lunes SOLO para el “weekStart” (editamos semana completa) pero informamos.
     if (dow !== 1) {
       setShowDateError(true);
       setTimeout(() => setShowDateError(false), 2500);
@@ -534,46 +761,42 @@ useEffect(() => {
   };
 
   // -------------------------
-  // Guardar semana (✅ NO redirige; se queda en el modal)
+  // Guardar semana a DB
   // -------------------------
-const saveCurrentWeekToDB = async () => {
-  // dates de la semana (lunes..domingo)
-  const weekStartDate = ymdToDateLocal(selectedWeek);
-  const weekDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStartDate);
-    d.setDate(weekStartDate.getDate() + i);
-    return dateToYMDLocal(d);
-  });
+  const saveCurrentWeekToDB = async () => {
+    const weekStartDate = ymdToDateLocal(selectedWeek);
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStartDate);
+      d.setDate(weekStartDate.getDate() + i);
+      return dateToYMDLocal(d);
+    });
 
-  const daySchedules = weekDates.map((date, i) => {
-    const dayName = getDayKeyFromIndex(i);
-    const ds = schedule[dayName];
-    return {
-      employee_id: employee.id,
-      date,
-      morning_start: ds.morning.start || null,
-      morning_end: ds.morning.end || null,
-      afternoon_start: ds.afternoon.enabled && ds.afternoon.start ? ds.afternoon.start : null,
-      afternoon_end: ds.afternoon.enabled && ds.afternoon.end ? ds.afternoon.end : null,
-      enabled: !!ds.afternoon.enabled
+    const daySchedules = weekDates.map((date, i) => {
+      const dayName = getDayKeyFromIndex(i);
+      const ds = schedule[dayName];
+      return {
+        employee_id: employee.id,
+        date,
+        morning_start: ds.morning.start || null,
+        morning_end: ds.morning.end || null,
+        afternoon_start: ds.afternoon.enabled && ds.afternoon.start ? ds.afternoon.start : null,
+        afternoon_end: ds.afternoon.enabled && ds.afternoon.end ? ds.afternoon.end : null,
+        enabled: !!ds.afternoon.enabled
+      };
+    });
+
+    await supabase.from('employee_schedules').delete().eq('employee_id', employee.id).in('date', weekDates);
+    const { error } = await supabase.from('employee_schedules').insert(daySchedules);
+    if (error) throw error;
+
+    const updatedWeek: WeekSchedule = {
+      ...JSON.parse(JSON.stringify(schedule)),
+      weekStart: selectedWeek
     };
-  });
 
-  await supabase.from('employee_schedules').delete().eq('employee_id', employee.id).in('date', weekDates);
-  const { error } = await supabase.from('employee_schedules').insert(daySchedules);
-  if (error) throw error;
-
-  const updatedWeek: WeekSchedule = {
-    ...JSON.parse(JSON.stringify(schedule)),
-    weekStart: selectedWeek
+    setSchedule(updatedWeek);
+    setSchedules((prev) => ({ ...prev, [selectedWeek]: updatedWeek }));
   };
-
-  // ✅ sincroniza el editor con lo que acabas de persistir
-  setSchedule(updatedWeek);
-
-  // ✅ actualiza cache de semanas inmediatamente (dispara recálculo de horas y render de lista)
-  setSchedules((prev) => ({ ...prev, [selectedWeek]: updatedWeek }));
-}; // ✅ IMPORTANTÍSIMO: cerrar la función aquí
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -581,10 +804,20 @@ const saveCurrentWeekToDB = async () => {
       setLoading(true);
       await saveCurrentWeekToDB();
 
-      // ✅ Ya NO hacemos redirect aquí. Y evitamos llamar onSave para no disparar navegación del parent.
-      // Si quieres mantener compatibilidad de backend/legacy, descomenta y asegura que el parent NO navegue.
-      // const formatted = { weeks: { ...schedules, [selectedWeek]: { ...schedule, weekStart: selectedWeek } } };
-      // onSave(JSON.stringify(formatted), employee.id);
+      // Guardar hours_worked_before_year en employee_profiles
+      console.log('Guardando hours_worked_before_year:', hoursWorkedBeforeYear);
+      const { data, error: updateError } = await supabase
+        .from('employee_profiles')
+        .update({ hours_worked_before_year: hoursWorkedBeforeYear })
+        .eq('id', employee.id)
+        .select();
+
+      if (updateError) {
+        console.error('Error actualizando hours_worked_before_year:', updateError);
+        throw updateError;
+      }
+
+      console.log('hours_worked_before_year guardado exitosamente:', data);
 
       setSaveToast('✅ Guardado correctamente');
       setTimeout(() => setSaveToast(null), 2200);
@@ -596,98 +829,244 @@ const saveCurrentWeekToDB = async () => {
     }
   };
 
-const handleSaveAndExit = async () => {
-  try {
-    setLoading(true);
-    await saveCurrentWeekToDB();
+  const handleSaveAndExit = async () => {
+    try {
+      setLoading(true);
+      await saveCurrentWeekToDB();
 
-    // si queda descuadrado (positivo o negativo) => warning
-    if (Math.abs(remainingHours) > 0.0001) {
-      setShowLeaveModal(true);
-      return;
+      // Guardar hours_worked_before_year en employee_profiles
+      const { error: updateError } = await supabase
+        .from('employee_profiles')
+        .update({ hours_worked_before_year: hoursWorkedBeforeYear })
+        .eq('id', employee.id);
+
+      if (updateError) throw updateError;
+
+      if (Math.abs(remainingHours) > EPS) {
+        setShowLeaveModal(true);
+        return;
+      }
+
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -------------------------
+  // Helpers UI (holiday/vacation)
+  // -------------------------
+  const isSelectedWeekHoliday = (day: keyof WeekSchedule) => {
+    const d = getDateForSelectedWeekDay(selectedWeek, day);
+    const holiday = holidays.find((h) => h.date === d);
+
+    if (!holiday) {
+      return { isHoliday: false, isExcluded: false, name: '', id: '', date: d };
     }
 
-    // ✅ en vez de navegar, cerramos el modal
-    onClose();
-  } catch (err) {
-    console.error(err);
-    alert('Error al guardar');
-  } finally {
-    setLoading(false);
-  }
-};
+    const isExcluded = excludedHolidays.has(holiday.id);
 
-  const clearScheduleForDateInLocalState = (ymd: string) => {
-  // Limpia el día en schedules + si está en la semana seleccionada también en schedule
-  const d = ymdToDateLocal(ymd);
-  const jsDow = d.getDay(); // 0..6
-  const idx = (jsDow === 0 ? 6 : jsDow - 1); // lunes=0..domingo=6
-  const key = getDayKeyFromIndex(idx);
+    return {
+      isHoliday: !isExcluded,
+      isExcluded,
+      name: holiday.name,
+      id: holiday.id,
+      date: d
+    };
+  };
 
-  // 1) limpiar el editor de la semana actual si corresponde a la misma semana
-  const weekMonday = new Date(d);
-  const diff = jsDow === 0 ? -6 : 1 - jsDow;
-  weekMonday.setDate(d.getDate() + diff);
-  const weekStart = dateToYMDLocal(weekMonday);
+  const isSelectedWeekVacationDay = (day: keyof WeekSchedule) => {
+    const d = getDateForSelectedWeekDay(selectedWeek, day);
+    return { isVacation: vacationDaysSet.has(d), date: d };
+  };
 
-  if (weekStart === selectedWeek) {
-    setSchedule((prev) => ({
-      ...prev,
-      [key]: { ...emptyDaySchedule }
-    }));
-  }
+  const formatScheduleForDisplay = () => {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const keys: (keyof WeekSchedule)[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
-  // 2) limpiar schedules cacheados
-  setSchedules((prev) => {
-    const next: Record<string, WeekSchedule> = { ...prev };
-    if (next[weekStart]) {
-      next[weekStart] = { ...next[weekStart], [key]: { ...emptyDaySchedule } } as any;
+    return days
+      .map((name, idx) => {
+        const k = keys[idx];
+
+        const holidayInfo = isSelectedWeekHoliday(k);
+        const vacationInfo = isSelectedWeekVacationDay(k);
+        const isNonWorkingDay = vacationInfo.isVacation || (holidayInfo.isHoliday && !holidayInfo.isExcluded);
+        const d = isNonWorkingDay ? emptyDaySchedule : schedule[k];
+
+        let text = `${name}: ${d.morning.start || '--:--'} - ${d.morning.end || '--:--'}`;
+        if (d.afternoon.enabled) {
+          text += ` y ${d.afternoon.start || '--:--'} - ${d.afternoon.end || '--:--'}`;
+        }
+        return text;
+      })
+      .join('\n');
+  };
+
+  const calculateWeekHours = (weekStart: string, weekSchedule: WeekSchedule): number =>
+    calculateWeekHoursForCalendarYear(weekStart, weekSchedule, selectedYear);
+
+  // -------------------------
+  // Conflictos aplicar (helpers)
+  // -------------------------
+  const getNextConflictByOrder = (skip: Set<string>, resolved: Set<string>) => {
+    if (!applyQueue) return null;
+
+    for (const d of applyQueue.dates) {
+      if (resolved.has(d)) continue;
+
+      const c = applyConflicts.find((x) => x.date === d);
+      if (c && (c.type === 'holiday' || c.type === 'vacation') && !skip.has(d)) {
+        return c;
+      }
     }
-    return next;
-  });
-};
+    return null;
+  };
 
-const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => {
-  try {
-    setLoading(true);
+  // -------------------------
+  // RenderDaySchedule (lo usa el JSX)
+  // -------------------------
+  const renderDaySchedule = (day: keyof WeekSchedule, dayName: string) => {
+    const holidayInfo = isSelectedWeekHoliday(day);
+    const vacationInfo = isSelectedWeekVacationDay(day);
 
-    // 1) Restablecer festivo: eliminar exclusión
-    const { error: delExclErr } = await supabase
-      .from('employee_holiday_exclusions')
-      .delete()
-      .eq('employee_id', employee.id)
-      .eq('holiday_id', holidayId);
+    const isBlockedByVacation = vacationInfo.isVacation;
+    const daySchedule = isBlockedByVacation ? emptyDaySchedule : schedule[day];
 
-    if (delExclErr) throw delExclErr;
+    return (
+      <div
+        className={`border rounded-lg p-4 mb-4 ${
+          holidayInfo.isHoliday ? 'border-orange-300 bg-orange-50' : ''
+        } ${vacationInfo.isVacation ? 'border-purple-300 bg-purple-50' : ''}`}
+      >
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-semibold text-lg flex items-center gap-2">
+            {dayName}
+            {(holidayInfo.isHoliday || holidayInfo.isExcluded) && (
+              <span
+                className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${
+                  holidayInfo.isExcluded ? 'bg-gray-200 text-gray-800' : 'bg-orange-100 text-orange-800'
+                }`}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                {holidayInfo.isExcluded ? `Festivo (excluido): ${holidayInfo.name}` : `Festivo: ${holidayInfo.name}`}
+              </span>
+            )}
 
-    // actualizar state excluded
-    setExcludedHolidays((prev) => {
-      const next = new Set(prev);
-      next.delete(holidayId);
-      return next;
-    });
+            {vacationInfo.isVacation && (
+              <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                Vacaciones
+              </span>
+            )}
+          </h3>
 
-    // 2) Quitar horario de ese día: borrar schedules para esa fecha
-    const { error: delSchedErr } = await supabase
-      .from('employee_schedules')
-      .delete()
-      .eq('employee_id', employee.id)
-      .eq('date', ymd);
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => copyScheduleToWeekdays(day)}
+              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+            >
+              Copiar a L-V
+            </button>
+            <button
+              type="button"
+              onClick={() => copyScheduleToAllDays(day)}
+              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+            >
+              Copiar a todos
+            </button>
+          </div>
+        </div>
 
-    if (delSchedErr) throw delSchedErr;
+        <div className="mb-4">
+          <h4 className="font-medium text-sm mb-2">Turno de mañana</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Hora inicio</label>
+              <input
+                type="time"
+                value={daySchedule.morning.start}
+                onChange={(e) => handleDayChange(day, 'morning', 'start', e.target.value)}
+                disabled={isBlockedByVacation}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+            </div>
 
-    // 3) Limpiar el día en UI (dejar --:-- / vacío)
-    clearScheduleForDateInLocalState(ymd);
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Hora fin</label>
+              <input
+                type="time"
+                value={daySchedule.morning.end}
+                onChange={(e) => handleDayChange(day, 'morning', 'end', e.target.value)}
+                disabled={isBlockedByVacation}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+            </div>
+          </div>
+        </div>
 
-    setSaveToast('✅ Festivo restablecido y horario eliminado para ese día');
-    setTimeout(() => setSaveToast(null), 2400);
-  } catch (err) {
-    console.error(err);
-    alert('Error al restablecer el festivo');
-  } finally {
-    setLoading(false);
-  }
-};
+        <div className="mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-medium text-sm">Turno de tarde</h4>
+            <button
+              type="button"
+              onClick={() => toggleAfternoonShift(day)}
+              disabled={isBlockedByVacation}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded ${
+                daySchedule.afternoon.enabled
+                  ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                  : 'bg-green-100 text-green-700 hover:bg-green-200'
+              } disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed`}
+            >
+              {daySchedule.afternoon.enabled ? (
+                <>
+                  <Trash className="w-3 h-3" />
+                  <span>Eliminar turno</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3 h-3" />
+                  <span>Añadir horario</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {daySchedule.afternoon.enabled && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Hora inicio</label>
+                <input
+                  type="time"
+                  value={daySchedule.afternoon.start}
+                  onChange={(e) => handleDayChange(day, 'afternoon', 'start', e.target.value)}
+                  disabled={isBlockedByVacation}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Hora fin</label>
+                <input
+                  type="time"
+                  value={daySchedule.afternoon.end}
+                  onChange={(e) => handleDayChange(day, 'afternoon', 'end', e.target.value)}
+                  disabled={isBlockedByVacation}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+ // WorkScheduleModal.tsx (PARTE 2/2)
+// ⬇️ pega esto justo después del final de la PARTE 1 (donde dejé el comentario “PARTE 2 CONTINÚA”)
 
   // -------------------------
   // Eliminar semana completa
@@ -779,10 +1158,9 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
       .in('date', days);
     if (error) throw error;
 
-    // actualiza state local (quitando horas)
+    // state local
     setSchedules((prev) => {
       const next: Record<string, WeekSchedule> = { ...prev };
-      // removemos/limpiamos los días en las semanas afectadas
       days.forEach((ymd) => {
         const d = ymdToDateLocal(ymd);
         const jsDow = d.getDay(); // 0..6
@@ -791,7 +1169,7 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
         weekMonday.setDate(d.getDate() + diff);
         const weekStart = dateToYMDLocal(weekMonday);
 
-        const idx = (jsDow === 0 ? 6 : jsDow - 1); // lunes=0..domingo=6
+        const idx = (jsDow === 0 ? 6 : jsDow - 1);
         const key = getDayKeyFromIndex(idx);
 
         if (next[weekStart]) {
@@ -829,7 +1207,7 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
         return;
       }
 
-      // company_id (como en SupervisorCalendar)
+      // company_id
       const { data: companyData, error: compErr } = await supabase
         .from('employee_profiles')
         .select('company_id')
@@ -839,7 +1217,6 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
       if (compErr) throw compErr;
       if (!companyData?.company_id) throw new Error('No company_id');
 
-      // ✅ Si hay días laborales en el rango => warning y si continúa: descontar (borrando schedules)
       const { workDays } = await checkWorkSchedulesInRange(vacationStartDate, vacationEndDate);
 
       const payload = {
@@ -858,7 +1235,6 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
         return;
       }
 
-      // no hay laborales -> insert directo
       await insertVacation(payload);
 
       setShowVacationCreate(false);
@@ -885,11 +1261,7 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
     try {
       setLoading(true);
 
-      // ✅ Acción requerida: cambiar estatus a vacaciones y descontar horas:
-      // -> borramos los schedules en ese rango (reduce horas asignadas => recalcula pendientes)
       await deleteSchedulesInRange(payload.start_date, payload.end_date);
-
-      // -> insert vacaciones
       await insertVacation(payload);
 
       setShowVacationWorkdaysWarning(false);
@@ -927,7 +1299,7 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
   };
 
   // -------------------------
-  // Aplicar a todo el año (✅ año de selectedWeek) + colas de conflictos (festivo/vacación)
+  // Aplicar a todo el año / rango
   // -------------------------
   const applyScheduleToAllYear = () => setShowConfirmationAllYear(true);
 
@@ -948,7 +1320,6 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
 
       const allDates = buildDatesForAllYear(selectedYear);
 
-      // preparar cola de aplicación (festivos/vacaciones requieren decisión)
       const conflicts: ApplyConflict[] = [];
       allDates.forEach((d) => {
         const holiday = holidays.find((h) => h.date === d && !excludedHolidays.has(h.id));
@@ -963,7 +1334,6 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
       if (conflicts.length > 0) {
         setShowApplyConflictModal(true);
       } else {
-        // sin conflictos: aplicar todo directo
         await applyScheduleToSpecificDates(allDates);
         setSaveToast('✅ Horario aplicado a todo el año');
         setTimeout(() => setSaveToast(null), 2200);
@@ -976,10 +1346,6 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
     }
   };
 
-  // -------------------------
-  // Aplicar a rango (✅ NO ajusta a lunes-domingo, aplica el día de semana correspondiente)
-  // + conflictos uno por uno (festivo/vacación) preguntando si aplicar
-  // -------------------------
   const applyScheduleToDateRange = () => setShowDateRangeModal(true);
 
   const confirmApplyToDateRange = async () => {
@@ -1025,17 +1391,14 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
     }
   };
 
-  // Aplicar el patrón semanal actual (schedule) a una lista de fechas:
-  // - calcula el dayKey por día de semana real de cada fecha (✅ no desplaza)
-  // - escribe employee_schedules para cada fecha
   const applyScheduleToSpecificDates = async (dates: string[], skipDates?: Set<string>) => {
     const toApply = dates.filter((d) => !(skipDates?.has(d)));
     if (toApply.length === 0) return;
 
     const rows = toApply.map((ymd) => {
       const d = ymdToDateLocal(ymd);
-      const jsDow = d.getDay(); // 0..6
-      const idx = (jsDow === 0 ? 6 : jsDow - 1); // lunes=0..domingo=6
+      const jsDow = d.getDay();
+      const idx = (jsDow === 0 ? 6 : jsDow - 1);
       const key = getDayKeyFromIndex(idx);
       const ds = schedule[key];
 
@@ -1050,10 +1413,8 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
       };
     });
 
-    // delete prev
     await supabase.from('employee_schedules').delete().eq('employee_id', employee.id).in('date', toApply);
 
-    // insert batches
     const batchSize = 200;
     for (let i = 0; i < rows.length; i += batchSize) {
       const batch = rows.slice(i, i + batchSize);
@@ -1061,7 +1422,6 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
       if (error) throw error;
     }
 
-    // state local: actualiza weeks afectadas
     setSchedules((prev) => {
       const next: Record<string, WeekSchedule> = { ...prev };
 
@@ -1076,7 +1436,9 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
         const idx = (jsDow === 0 ? 6 : jsDow - 1);
         const key = getDayKeyFromIndex(idx);
 
-        const baseWeek = next[weekStart] || ({ ...JSON.parse(JSON.stringify(defaultWeekSchedule)), weekStart } as WeekSchedule);
+        const baseWeek =
+          next[weekStart] || ({ ...JSON.parse(JSON.stringify(defaultWeekSchedule)), weekStart } as WeekSchedule);
+
         (baseWeek as any)[key] = JSON.parse(JSON.stringify(schedule[key]));
         next[weekStart] = baseWeek;
       });
@@ -1085,378 +1447,119 @@ const restoreHolidayAndClearWorkday = async (holidayId: string, ymd: string) => 
     });
   };
 
-  // -------------------------
-  // UI helpers (vacaciones/festivo en semana)
-  // -------------------------
-const isSelectedWeekHoliday = (day: keyof WeekSchedule) => {
-  const d = getDateForSelectedWeekDay(selectedWeek, day);
+  const applyScheduleToSingleDate = async (ymd: string) => {
+    const d = ymdToDateLocal(ymd);
+    const jsDow = d.getDay();
+    const idx = (jsDow === 0 ? 6 : jsDow - 1);
+    const key = getDayKeyFromIndex(idx);
+    const ds = schedule[key];
 
-  // Festivo “real” por fecha (aunque esté excluido)
-  const holiday = holidays.find((h) => h.date === d);
+    const row = {
+      employee_id: employee.id,
+      date: ymd,
+      morning_start: ds.morning.start || null,
+      morning_end: ds.morning.end || null,
+      afternoon_start: ds.afternoon.enabled && ds.afternoon.start ? ds.afternoon.start : null,
+      afternoon_end: ds.afternoon.enabled && ds.afternoon.end ? ds.afternoon.end : null,
+      enabled: !!ds.afternoon.enabled
+    };
 
-  if (!holiday) {
-    return { isHoliday: false, isExcluded: false, name: '', id: '', date: d };
-  }
+    const { error: delErr } = await supabase
+      .from('employee_schedules')
+      .delete()
+      .eq('employee_id', employee.id)
+      .eq('date', ymd);
+    if (delErr) throw delErr;
 
-  const isExcluded = excludedHolidays.has(holiday.id);
+    const { error: insErr } = await supabase.from('employee_schedules').insert([row]);
+    if (insErr) throw insErr;
 
-  // isHoliday = existe y NO está excluido
-  return {
-    isHoliday: !isExcluded,
-    isExcluded,
-    name: holiday.name,
-    id: holiday.id,
-    date: d
-  };
-};
+    setSchedules((prev) => {
+      const next: Record<string, WeekSchedule> = { ...prev };
 
-  const isSelectedWeekVacationDay = (day: keyof WeekSchedule) => {
-    const d = getDateForSelectedWeekDay(selectedWeek, day);
-    return { isVacation: vacationDaysSet.has(d), date: d };
-  };
+      const dd = ymdToDateLocal(ymd);
+      const js = dd.getDay();
+      const weekMonday = new Date(dd);
+      const diff = js === 0 ? -6 : 1 - js;
+      weekMonday.setDate(dd.getDate() + diff);
+      const weekStart = dateToYMDLocal(weekMonday);
 
-  // -------------------------
-  // A PARTIR DE AQUÍ EMPIEZA EL RENDER (lo sigo en PARTE 2)
-  // -------------------------
-const renderDaySchedule = (day: keyof WeekSchedule, dayName: string) => {
-  const holidayInfo = isSelectedWeekHoliday(day);
-  const vacationInfo = isSelectedWeekVacationDay(day);
+      const dayIdx = (js === 0 ? 6 : js - 1);
+      const dayKey = getDayKeyFromIndex(dayIdx);
 
-// ✅ Solo bloqueamos edición por VACACIONES.
-// ✅ Festivo NO excluido: SE PUEDE EDITAR, pero saltará el warning de confirmación (handleDayChange).
-const isBlockedByVacation = vacationInfo.isVacation;
+      const baseWeek =
+        next[weekStart] || ({ ...JSON.parse(JSON.stringify(defaultWeekSchedule)), weekStart } as WeekSchedule);
 
-// ✅ En vacaciones mostramos vacío. En festivo mostramos el horario real (para que puedas escribir).
-const daySchedule = isBlockedByVacation ? emptyDaySchedule : schedule[day];
+      (baseWeek as any)[dayKey] = JSON.parse(JSON.stringify(schedule[dayKey]));
+      next[weekStart] = baseWeek;
 
-  return (
-    <div
-      className={`border rounded-lg p-4 mb-4 ${
-        holidayInfo.isHoliday ? 'border-orange-300 bg-orange-50' : ''
-      } ${vacationInfo.isVacation ? 'border-purple-300 bg-purple-50' : ''}`}
-    >
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-semibold text-lg flex items-center gap-2">
-            {dayName}
-{(holidayInfo.isHoliday || holidayInfo.isExcluded) && (
-  <span className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${
-    holidayInfo.isExcluded ? 'bg-gray-200 text-gray-800' : 'bg-orange-100 text-orange-800'
-  }`}>
-    <AlertTriangle className="w-3 h-3" />
-    {holidayInfo.isExcluded ? `Festivo (excluido): ${holidayInfo.name}` : `Festivo: ${holidayInfo.name}`}
-  </span>
-)}
-
-{holidayInfo.isExcluded && holidayInfo.id && (
-  <button
-    type="button"
-    onClick={() => restoreHolidayAndClearWorkday(holidayInfo.id, holidayInfo.date)}
-    className="text-xs px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
-    disabled={loading}
-    title="Restaura el festivo y elimina el horario laboral de este día"
-  >
-    Restablecer festivo
-  </button>
-)}
-            {vacationInfo.isVacation && (
-              <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                Vacaciones
-              </span>
-            )}
-          </h3>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => copyScheduleToWeekdays(day)}
-              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-            >
-              Copiar a L-V
-            </button>
-            <button
-              type="button"
-              onClick={() => copyScheduleToAllDays(day)}
-              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-            >
-              Copiar a todos
-            </button>
-          </div>
-        </div>
-
-<div className="mb-4">
-  <h4 className="font-medium text-sm mb-2">Turno de mañana</h4>
-  <div className="grid grid-cols-2 gap-3">
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">Hora inicio</label>
-      <input
-  type="time"
-  value={daySchedule.morning.start}
-  onChange={(e) => handleDayChange(day, 'morning', 'start', e.target.value)}
-  disabled={isBlockedByVacation}
-  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-/>
-    </div>
-
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">Hora fin</label>
-      <input
-        type="time"
-        value={daySchedule.morning.end}
-        onChange={(e) => handleDayChange(day, 'morning', 'end', e.target.value)}
-        disabled={isBlockedByVacation}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-      />
-    </div>
-  </div>
-</div>
-
-<div className="mb-2">
-  <div className="flex items-center justify-between mb-2">
-    <h4 className="font-medium text-sm">Turno de tarde</h4>
- <button
-  type="button"
-  onClick={() => toggleAfternoonShift(day)}
-  disabled={isBlockedByVacation}
-  className={`flex items-center gap-1 text-xs px-2 py-1 rounded ${
-    daySchedule.afternoon.enabled
-      ? 'bg-red-100 text-red-700 hover:bg-red-200'
-      : 'bg-green-100 text-green-700 hover:bg-green-200'
-  } disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed`}
->
-      {daySchedule.afternoon.enabled ? (
-        <>
-          <Trash className="w-3 h-3" />
-          <span>Eliminar turno</span>
-        </>
-      ) : (
-        <>
-          <Plus className="w-3 h-3" />
-          <span>Añadir horario</span>
-        </>
-      )}
-    </button>
-  </div>
-
-  {daySchedule.afternoon.enabled && (
-    <div className="grid grid-cols-2 gap-3">
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Hora inicio</label>
-        <input
-          type="time"
-          value={daySchedule.afternoon.start}
-          onChange={(e) => handleDayChange(day, 'afternoon', 'start', e.target.value)}
-          disabled={isBlockedByVacation}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-        />
-      </div>
-
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Hora fin</label>
-        <input
-          type="time"
-          value={daySchedule.afternoon.end}
-          onChange={(e) => handleDayChange(day, 'afternoon', 'end', e.target.value)}
-          disabled={isBlockedByVacation}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-        />
-      </div>
-    </div>
-  )}
-</div>
-      </div>
-    );
+      return next;
+    });
   };
 
-const formatScheduleForDisplay = () => {
-  const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-  const keys: (keyof WeekSchedule)[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const proceedApplyAfterConflicts = async (finalSkip: Set<string>) => {
+    if (!applyQueue) return;
+    try {
+      setLoading(true);
 
-  return days
-    .map((name, idx) => {
-      const k = keys[idx];
+      await applyScheduleToSpecificDates(applyQueue.dates, finalSkip);
 
-const holidayInfo = isSelectedWeekHoliday(k);
-const vacationInfo = isSelectedWeekVacationDay(k);
-const isNonWorkingDay = vacationInfo.isVacation || (holidayInfo.isHoliday && !holidayInfo.isExcluded);
-const d = isNonWorkingDay ? emptyDaySchedule : schedule[k];
+      setShowApplyConflictModal(false);
+      setApplyQueue(null);
+      setApplyConflicts([]);
+      setSkipApplyDates(new Set());
+      setResolvedApplyDates(new Set());
 
-      let text = `${name}: ${d.morning.start || '--:--'} - ${d.morning.end || '--:--'}`;
-      if (d.afternoon.enabled) {
-        text += ` y ${d.afternoon.start || '--:--'} - ${d.afternoon.end || '--:--'}`;
-      }
-      return text;
-    })
-    .join('\n');
-};
-
-  const formatDate = (ymd: string) => formatDateLong(ymd);
-
-const calculateWeekHours = (weekStart: string, weekSchedule: WeekSchedule): number =>
-  calculateWeekHoursForCalendarYear(weekStart, weekSchedule, selectedYear);
-
-// -------------------------
-// Conflictos al aplicar (FIX: sin condiciones de carrera)
-// -------------------------
-
-// -------------------------
-// Conflictos al aplicar (FIX: "Aplicar igualmente" aplica ESE día y avanza)
-// -------------------------
-
-// Fechas ya resueltas (para que el modal avance). Incluye tanto:
-// - fechas "skip" (el usuario dijo dejar como está)
-// - fechas "applied" (el usuario dijo aplicar igualmente)
-const [resolvedApplyDates, setResolvedApplyDates] = useState<Set<string>>(new Set());
-
-// Mantén skipApplyDates solo como "NO aplicar"
-const [skipApplyDates, setSkipApplyDates] = useState<Set<string>>(new Set());
-
-const getNextConflictByOrder = (skip: Set<string>, resolved: Set<string>) => {
-  if (!applyQueue) return null;
-
-  for (const d of applyQueue.dates) {
-    // si ya está resuelta (aplicada o skip), no preguntar de nuevo
-    if (resolved.has(d)) continue;
-
-    const c = applyConflicts.find((x) => x.date === d);
-    if (c && (c.type === 'holiday' || c.type === 'vacation') && !skip.has(d)) {
-      return c;
+      setSaveToast('✅ Horario aplicado (conflictos resueltos)');
+      setTimeout(() => setSaveToast(null), 2400);
+    } catch (err) {
+      console.error(err);
+      alert('Error aplicando horario');
+    } finally {
+      setLoading(false);
     }
-  }
-  return null;
-};
-
-// Aplica el horario SOLO a una fecha (aunque sea festivo/vacaciones)
-const applyScheduleToSingleDate = async (ymd: string) => {
-  // reutiliza la misma lógica de applyScheduleToSpecificDates pero para 1 fecha
-  const d = ymdToDateLocal(ymd);
-  const jsDow = d.getDay();
-  const idx = (jsDow === 0 ? 6 : jsDow - 1);
-  const key = getDayKeyFromIndex(idx);
-  const ds = schedule[key];
-
-  const row = {
-    employee_id: employee.id,
-    date: ymd,
-    morning_start: ds.morning.start || null,
-    morning_end: ds.morning.end || null,
-    afternoon_start: ds.afternoon.enabled && ds.afternoon.start ? ds.afternoon.start : null,
-    afternoon_end: ds.afternoon.enabled && ds.afternoon.end ? ds.afternoon.end : null,
-    enabled: !!ds.afternoon.enabled
   };
 
-  // delete prev ese día
-  const { error: delErr } = await supabase
-    .from('employee_schedules')
-    .delete()
-    .eq('employee_id', employee.id)
-    .eq('date', ymd);
+  const handleConflictDecision = async (applyAnyway: boolean) => {
+    if (!applyQueue) return;
 
-  if (delErr) throw delErr;
+    const current = getNextConflictByOrder(skipApplyDates, resolvedApplyDates);
 
-  // insert ese día
-  const { error: insErr } = await supabase.from('employee_schedules').insert([row]);
-  if (insErr) throw insErr;
-
-  // actualizar state local (cache de semanas)
-  setSchedules((prev) => {
-    const next: Record<string, WeekSchedule> = { ...prev };
-
-    const dd = ymdToDateLocal(ymd);
-    const js = dd.getDay();
-    const weekMonday = new Date(dd);
-    const diff = js === 0 ? -6 : 1 - js;
-    weekMonday.setDate(dd.getDate() + diff);
-    const weekStart = dateToYMDLocal(weekMonday);
-
-    const dayIdx = (js === 0 ? 6 : js - 1);
-    const dayKey = getDayKeyFromIndex(dayIdx);
-
-    const baseWeek =
-      next[weekStart] || ({ ...JSON.parse(JSON.stringify(defaultWeekSchedule)), weekStart } as WeekSchedule);
-
-    (baseWeek as any)[dayKey] = JSON.parse(JSON.stringify(schedule[dayKey]));
-    next[weekStart] = baseWeek;
-
-    return next;
-  });
-};
-
-// Finalizar: aplicar a todas las fechas EXCEPTO las que el usuario decidió "dejar como está"
-const proceedApplyAfterConflicts = async (finalSkip: Set<string>) => {
-  if (!applyQueue) return;
-  try {
-    setLoading(true);
-
-    await applyScheduleToSpecificDates(applyQueue.dates, finalSkip);
-
-    setShowApplyConflictModal(false);
-    setApplyQueue(null);
-    setApplyConflicts([]);
-    setSkipApplyDates(new Set());
-    setResolvedApplyDates(new Set());
-
-    setSaveToast('✅ Horario aplicado (conflictos resueltos)');
-    setTimeout(() => setSaveToast(null), 2400);
-  } catch (err) {
-    console.error(err);
-    alert('Error aplicando horario');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleConflictDecision = async (applyAnyway: boolean) => {
-  if (!applyQueue) return;
-
-  const current = getNextConflictByOrder(skipApplyDates, resolvedApplyDates);
-
-  // Si ya no hay conflictos pendientes, terminar
-  if (!current) {
-    await proceedApplyAfterConflicts(new Set(skipApplyDates));
-    return;
-  }
-
-  try {
-    setLoading(true);
-
-    // Si el usuario quiere aplicar igualmente: aplicamos SOLO ese día ahora mismo
-    if (applyAnyway) {
-      await applyScheduleToSingleDate(current.date);
-    } else {
-      // si NO quiere aplicar: lo marcamos como skip
-      const nextSkip = new Set(skipApplyDates);
-      nextSkip.add(current.date);
-      setSkipApplyDates(nextSkip);
-    }
-
-    // En ambos casos, marcamos la fecha como resuelta para avanzar
-    const nextResolved = new Set(resolvedApplyDates);
-    nextResolved.add(current.date);
-    setResolvedApplyDates(nextResolved);
-
-    // ¿Queda otro conflicto?
-    const next = getNextConflictByOrder(
-      applyAnyway ? skipApplyDates : new Set(skipApplyDates).add(current.date),
-      nextResolved
-    );
-
-    if (!next) {
-      // ya no hay más -> aplicar al resto excluyendo skip
-      const finalSkip = applyAnyway ? new Set(skipApplyDates) : new Set(skipApplyDates).add(current.date);
-      await proceedApplyAfterConflicts(finalSkip);
+    if (!current) {
+      await proceedApplyAfterConflicts(new Set(skipApplyDates));
       return;
     }
 
-    // fuerza re-render del modal
-    setApplyConflicts((prev) => [...prev]);
-  } catch (err) {
-    console.error(err);
-    alert('Error resolviendo conflicto');
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      setLoading(true);
+
+      let nextSkip = new Set(skipApplyDates);
+
+      if (applyAnyway) {
+        await applyScheduleToSingleDate(current.date);
+      } else {
+        nextSkip.add(current.date);
+        setSkipApplyDates(nextSkip);
+      }
+
+      const nextResolved = new Set(resolvedApplyDates);
+      nextResolved.add(current.date);
+      setResolvedApplyDates(nextResolved);
+
+      const next = getNextConflictByOrder(nextSkip, nextResolved);
+      if (!next) {
+        await proceedApplyAfterConflicts(nextSkip);
+        return;
+      }
+
+      setApplyConflicts((prev) => [...prev]);
+    } catch (err) {
+      console.error(err);
+      alert('Error resolviendo conflicto');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // -------------------------
   // Render
@@ -1466,7 +1569,22 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
       <div className="bg-white rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold">Configurar Horario - {employee.fiscal_name}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
+          <button
+            onClick={async () => {
+              try {
+                // Guardar hours_worked_before_year antes de cerrar
+                await supabase
+                  .from('employee_profiles')
+                  .update({ hours_worked_before_year: hoursWorkedBeforeYear })
+                  .eq('id', employee.id);
+              } catch (err) {
+                console.error('Error guardando hours_worked_before_year:', err);
+              }
+              onClose();
+            }}
+            className="text-gray-400 hover:text-gray-600"
+            aria-label="Cerrar"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -1503,7 +1621,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
             )}
           </div>
 
-          {/* Hours information (✅ negativo en naranja) */}
+          {/* Hours information */}
           <div className="mb-4 p-4 bg-blue-50 rounded-lg">
             <div className="flex items-center gap-2 mb-2">
               <Info className="w-4 h-4 text-blue-600" />
@@ -1527,14 +1645,53 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
                 >
                   {remainingHours.toFixed(2)} horas
                 </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  (si es negativo: has asignado más horas que el cómputo total)
-                </p>
+                <p className="text-xs text-gray-500 mt-1">(para guardar plantilla debe ser 0 exacto)</p>
               </div>
+            </div>
+
+            {/* Nuevo Ingreso Iniciado Año */}
+            <div className="mt-4 pt-4 border-t border-blue-200">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isMidYearHire}
+                  onChange={(e) => {
+                    setIsMidYearHire(e.target.checked);
+                    if (!e.target.checked) {
+                      setHoursWorkedBeforeYear(0);
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-700">Nuevo Ingreso iniciado año</span>
+              </label>
+
+              {isMidYearHire && (
+                <div className="mt-3 ml-6">
+                  <label className="block text-sm text-gray-600 mb-1">
+                    Horas ya trabajadas antes de inicio de año:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={employee.total_annual_hours || employee.total_hours || 0}
+                    value={hoursWorkedBeforeYear}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      const max = employee.total_annual_hours || employee.total_hours || 0;
+                      setHoursWorkedBeforeYear(Math.min(Math.max(0, val), max));
+                    }}
+                    className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Estas horas se restarán del cómputo total anual
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Apply buttons + ✅ botón Vacaciones al lado de rango */}
+          {/* Apply buttons + Vacaciones */}
           <div className="mb-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
             <button
               type="button"
@@ -1569,6 +1726,52 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
             </div>
           </div>
 
+          {/* =========================
+              Plantillas de horario
+          ========================= */}
+          <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <Copy className="w-4 h-4" />
+              Plantillas de horario
+            </h3>
+
+            <div className="flex flex-col md:flex-row gap-3">
+              <select
+                value={selectedTemplateId || ''}
+                onChange={async (e) => {
+                  const id = e.target.value;
+                  setSelectedTemplateId(id);
+                  if (id) await applyTemplateToEmployee(id);
+                }}
+                className="flex-1 px-3 py-2 border rounded-lg"
+                disabled={loading}
+              >
+                <option value="">Seleccionar plantilla…</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={openTemplateModal}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  canSaveTemplate ? 'bg-gray-900 text-white hover:bg-black' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
+                disabled={loading || !canSaveTemplate}
+                title={!canSaveTemplate ? 'Solo puedes guardar plantilla cuando horas pendientes = 0' : 'Guardar como plantilla'}
+              >
+                Guardar como plantilla
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-2">
+              Las plantillas solo son visibles para quien las creó (RLS).
+            </p>
+          </div>
+
           {/* Days */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1592,54 +1795,57 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           {/* Configured weeks */}
           <div className="mt-6 border-t pt-6">
             <h3 className="font-semibold text-lg mb-4">Semanas configuradas (Año {selectedYear})</h3>
-{Object.keys(schedules).filter((w) => getWeekYearISO(w) === selectedYear).length === 0 ? (
-  <p className="text-gray-500 italic">No hay semanas configuradas en este año</p>
-) : (
-  <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-    {Object.entries(schedules)
-      .filter(([weekStart]) => getWeekYearISO(weekStart) === selectedYear)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([weekStart, weekSchedule]) => (
-        <div
-          key={weekStart}
-          className={`p-3 border rounded-lg ${
-            weekStart === selectedWeek ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-          }`}
-        >
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="font-medium">Semana del {formatDate(weekStart)}</p>
-              <p className="text-sm text-gray-600">{calculateWeekHours(weekStart, weekSchedule).toFixed(2)} horas semanales</p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedWeek(weekStart);
-                  setSchedule(weekSchedule);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
-              >
-                <Pencil className="w-4 h-4" /> Editar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteWeek(weekStart)}
-                className="text-red-600 hover:text-red-800 text-sm flex items-center gap-1"
-                disabled={loading}
-              >
-                <Trash className="w-4 h-4" /> Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      ))}
-  </div>
-)}
+
+            {Object.keys(schedules).filter((w) => getWeekYearISO(w) === selectedYear).length === 0 ? (
+              <p className="text-gray-500 italic">No hay semanas configuradas en este año</p>
+            ) : (
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                {Object.entries(schedules)
+                  .filter(([weekStart]) => getWeekYearISO(weekStart) === selectedYear)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([weekStart, weekSchedule]) => (
+                    <div
+                      key={weekStart}
+                      className={`p-3 border rounded-lg ${
+                        weekStart === selectedWeek ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-medium">Semana del {formatDateLong(weekStart)}</p>
+                          <p className="text-sm text-gray-600">
+                            {calculateWeekHours(weekStart, weekSchedule).toFixed(2)} horas semanales
+                          </p>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedWeek(weekStart);
+                              setSchedule(weekSchedule);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                          >
+                            <Pencil className="w-4 h-4" /> Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteWeek(weekStart)}
+                            className="text-red-600 hover:text-red-800 text-sm flex items-center gap-1"
+                            disabled={loading}
+                          >
+                            <Trash className="w-4 h-4" /> Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
 
-          {/* Footer buttons (✅ Guardar + Guardar y salir) */}
+          {/* Footer buttons */}
           <div className="flex justify-end gap-3 mt-6">
             <button
               type="button"
@@ -1686,7 +1892,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
                   sobrescribiendo lo existente.
                 </p>
                 <p className="text-xs text-gray-500 mt-2">
-                  Si hay festivos o vacaciones, te preguntaré día por día.
+                  Si hay festivos o vacaciones, se preguntará día por día.
                 </p>
               </div>
               <div className="flex justify-center gap-4 mt-6">
@@ -1753,7 +1959,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           </div>
         )}
 
-        {/* Exclude Holiday Modal (manteniendo tu lógica previa) */}
+        {/* Exclude Holiday Modal */}
         {showExcludeHolidayModal && pendingHolidayAction && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full">
@@ -1843,7 +2049,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           </div>
         )}
 
-        {/* Date Range Modal (✅ sin ajustar a lunes-domingo) */}
+        {/* Date Range Modal */}
         {showDateRangeModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full">
@@ -1852,7 +2058,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
                 <h3 className="text-lg font-semibold">Aplicar horario a rango de fechas</h3>
                 <p className="text-gray-600 mt-2">Selecciona el rango exacto al que deseas aplicar este horario.</p>
                 <p className="text-xs text-gray-500 mt-2">
-                  Se aplicará por <strong>día de la semana</strong> (ej: miércoles usa el horario de “Miércoles”).
+                  Se aplicará por <strong>día de la semana</strong>.
                 </p>
               </div>
 
@@ -1879,7 +2085,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
 
                 <div className="bg-blue-50 p-3 rounded-lg">
                   <p className="text-xs text-blue-800">
-                    <strong>Nota:</strong> Si el rango incluye <strong>festivos o vacaciones</strong>, se te preguntará día por día.
+                    <strong>Nota:</strong> Si el rango incluye <strong>festivos o vacaciones</strong>, se preguntará día por día.
                   </p>
                 </div>
               </div>
@@ -1909,50 +2115,52 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           </div>
         )}
 
-{showApplyConflictModal && (() => {
-  const c = getNextConflictByOrder(skipApplyDates, resolvedApplyDates);
-  if (!c) return null;
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg p-6 max-w-lg w-full">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-10 h-10 text-orange-500 flex-shrink-0" />
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold">Día con conflicto detectado</h3>
-            <p className="text-gray-700 mt-2">
-              Fecha: <strong>{formatDateLong(c.date)}</strong>
-            </p>
-            <p className="text-gray-700 mt-1">
-              Motivo: <strong>{c.label}</strong>
-            </p>
-            <p className="text-xs text-gray-500 mt-3">
-              ¿Quieres aplicar el horario laboral también en este día, o prefieres dejarlo como está?
-            </p>
-          </div>
-        </div>
+        {/* Conflictos al aplicar */}
+        {showApplyConflictModal &&
+          (() => {
+            const c = getNextConflictByOrder(skipApplyDates, resolvedApplyDates);
+            if (!c) return null;
+            return (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-10 h-10 text-orange-500 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold">Día con conflicto detectado</h3>
+                      <p className="text-gray-700 mt-2">
+                        Fecha: <strong>{formatDateLong(c.date)}</strong>
+                      </p>
+                      <p className="text-gray-700 mt-1">
+                        Motivo: <strong>{c.label}</strong>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-3">
+                        ¿Quieres aplicar el horario laboral también en este día, o prefieres dejarlo como está?
+                      </p>
+                    </div>
+                  </div>
 
-        <div className="flex justify-end gap-3 mt-6">
-          <button
-            onClick={() => handleConflictDecision(false)}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            disabled={loading}
-          >
-            Dejar como está
-          </button>
-          <button
-            onClick={() => handleConflictDecision(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            disabled={loading}
-          >
-            Aplicar igualmente
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-})()}
+                  <div className="flex justify-end gap-3 mt-6">
+                    <button
+                      onClick={() => handleConflictDecision(false)}
+                      className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                      disabled={loading}
+                    >
+                      Dejar como está
+                    </button>
+                    <button
+                      onClick={() => handleConflictDecision(true)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      disabled={loading}
+                    >
+                      Aplicar igualmente
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
-        {/* Vacations popup */}
+        {/* Vacaciones popup */}
         {showVacationsPopup && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[85vh] overflow-y-auto">
@@ -2075,7 +2283,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           </div>
         )}
 
-        {/* Vacaciones: BLOQUEO por festivo (no permitido) */}
+        {/* Vacaciones: BLOQUEO por festivo */}
         {showVacationHolidayBlocked && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full">
@@ -2111,7 +2319,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           </div>
         )}
 
-        {/* Vacaciones: WARNING por días laborales (si continúa: borra horarios y recalcula) */}
+        {/* Vacaciones: WARNING por días laborales */}
         {showVacationWorkdaysWarning && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
@@ -2126,8 +2334,7 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
 
                   <div className="mt-3 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
                     <p className="text-sm text-yellow-800 font-medium">
-                      Si continúas, esos días pasarán a <strong>vacaciones</strong> y se descontarán las horas asignadas
-                      (se recalcularán las horas pendientes).
+                      Si continúas, esos días pasarán a <strong>vacaciones</strong> y se descontarán las horas asignadas.
                     </p>
                   </div>
 
@@ -2166,6 +2373,44 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
           </div>
         )}
 
+        {/* ✅ Template Modal: pide nombre y guarda (solo si pendingHours==0) */}
+        {showTemplateModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <h3 className="text-lg font-semibold mb-2">Guardar plantilla</h3>
+
+              <p className="text-xs text-gray-600 mb-4">
+                Solo se puede guardar cuando <strong>Horas pendientes</strong> está en <strong>0</strong>.
+              </p>
+
+              <input
+                type="text"
+                placeholder="Nombre de la plantilla"
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg mb-4"
+              />
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowTemplateModal(false)}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                  disabled={loading}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveAsTemplate}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500"
+                  disabled={loading || !newTemplateName.trim() || !canSaveTemplate}
+                >
+                  Guardar plantilla
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Guardar y salir: warning por horas descuadradas */}
         {showLeaveModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -2190,14 +2435,23 @@ const handleConflictDecision = async (applyAnyway: boolean) => {
                   Volver
                 </button>
                 <button
-  onClick={() => {
-    setShowLeaveModal(false);
-    onClose(); // ✅ cerrar modal
-  }}
-  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors"
->
-  Sí, salir
-</button>
+                  onClick={async () => {
+                    try {
+                      // Guardar hours_worked_before_year antes de salir
+                      await supabase
+                        .from('employee_profiles')
+                        .update({ hours_worked_before_year: hoursWorkedBeforeYear })
+                        .eq('id', employee.id);
+                    } catch (err) {
+                      console.error('Error guardando hours_worked_before_year:', err);
+                    }
+                    setShowLeaveModal(false);
+                    onClose();
+                  }}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors"
+                >
+                  Sí, salir
+                </button>
               </div>
             </div>
           </div>
