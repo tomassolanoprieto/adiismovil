@@ -218,12 +218,28 @@ export default function EmployeeHistory() {
       }
     }
 
-    // Procesar entradas pendientes al final del día
+    // ✅ Opción A: si el fichaje abierto es de HOY, usar "now" (no inventar fin de día).
+    // Si es de un día pasado, se cierra a fin de ese día (como antes).
     currentEntries.forEach((entry) => {
       if (entry.clockIn && !entry.clockOut) {
-        const endOfDay = new Date(entry.date);
-        endOfDay.setHours(23, 59, 59, 999);
-        entry.clockOut = endOfDay.toISOString();
+        const now = new Date();
+        const clockInDate = new Date(entry.clockIn);
+
+        const isToday =
+          clockInDate.getFullYear() === now.getFullYear() &&
+          clockInDate.getMonth() === now.getMonth() &&
+          clockInDate.getDate() === now.getDate();
+
+        let assumedEnd: Date;
+
+        if (isToday) {
+          assumedEnd = now; // <- clave: evita nocturnas "futuras"
+        } else {
+          assumedEnd = new Date(entry.date);
+          assumedEnd.setHours(23, 59, 59, 999);
+        }
+
+        entry.clockOut = assumedEnd.toISOString();
         entry.hours = getHoursWorked(entry.clockIn, entry.clockOut, entry.breakDuration);
         entry.nightHours = calculateNightHours(entry.clockIn, entry.clockOut);
         dailyResults.push(entry);
